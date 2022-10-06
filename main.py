@@ -120,10 +120,9 @@ def main():
         f.write("{}".format(args))
 
 
-#   os.environ["CUDA_VISIBLE_DEVICES"]="6"
-#   os.environ["CUDA_VISIBLE_DEVICES"] = "4, 5, 6, 7"
+
+#   os.environ["CUDA_VISIBLE_DEVICES"] = "4, 5, 6, 7",   #  os.environ["CUDA_VISIBLE_DEVICES"]="6"
     device = torch.device("cuda" if torch.cuda.is_available() and True else "cpu")
-#    device = torch.device("cpu")
     print("device:", device)
 
     train_loader, val_loader = load_dataloader(args.n_train, args.batch_size)
@@ -135,12 +134,6 @@ def main():
             net, val_loader, CLASS_MAP, device, log_path)
 
     elif args.train_or_loadnet == "train":
-        # CNN or CAE or VAE
-        # if args.model == "CNN":
-        #     train_loss, train_acc, val_loss, val_acc = trainer.train(net, train_loader, val_loader, args.epoch, args.lr, device, log_path)
-        #     # torch.save(net.state_dict(), log_path + "weight.pth")
-        #     train_result.result(train_acc, train_loss, val_acc, val_loss, log_path)
-        #     confusion.make_confusion_matrix(net, val_loader, CLASS_MAP, device, log_path)
 
         if args.model == "ResNetCAE":
             train_loss, val_loss = trainer.train_ResNetCAE(net, train_loader, val_loader, args.epoch, args.lr, device, log_path)
