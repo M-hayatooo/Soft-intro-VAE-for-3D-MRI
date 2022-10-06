@@ -2,7 +2,6 @@ from typing import List
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 
 class BuildingBlock(nn.Module):
@@ -224,22 +223,45 @@ class ResNetVAE(BaseVAE):
         kld = -0.5 * torch.sum(1 + logvar - mu**2 - logvar.exp())
         return re_err + kld
 
-class SoftIntroVAE():
+class SoftIntroVAE(nn.Module):
     def __init__(self, in_ch, block_setting) -> None:
-        super(ResNetVAE, self).__init__()
+        super(SoftIntroVAE, self).__init__()
         self.encoder = VAEResNetEncoder(
             in_ch=in_ch,
             block_setting=block_setting,
         )
         self.decoder = ResNetDecoder(self.encoder)
 
-    def reparamenterize(self, mu, logvar):
+    def reparameterize(self, mu, logvar):
         std = torch.exp(0.5 * logvar)
         eps = torch.randn_like(std)
         return mu + eps * std
 
     def forward(self, x):
         mu, logvar = self.encoder(x)
-        z = self.reparamenterize(mu, logvar)
+        z = self.reparameterize(mu, logvar)
         x_re = self.decoder(z)
-        return x_re, mu, logvar
+        return mu, logvar, z, x_re
+
+    def loss(self, x_re, x, mu, logvar):
+        re_err = torch.sqrt(torch.mean((x_re - x)**2)) # ==  self.Rmse(x_re, x)
+        kld = -0.5 * torch.sum(1 + logvar - mu**2 - logvar.exp())
+        return re_err + kld
+
+    def sample(self, z, y_cond=None):
+        # x.view(-1, 2)
+        z = z.view(32, 1, 5, 6, 5)# batchsize, channel, 5×6×5 (150)
+        y = self.decode(z, y_cond=y_cond)
+        return y
+
+    def sample_with_noise(self, num_samples=1, device=torch.device("cpu"), y_cond=None):
+        z = torch.randn(num_samples, self.z_dim).to(device)
+        return self.decode(z, y_cond=y_cond)
+
+    def encode(self, x, o_cond=None):
+        mu, logvar = self.encoder(x)
+        return mu, logvar
+
+    def decode(self, z, y_cond=None):
+        y = self.decoder(z)
+        return y
