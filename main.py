@@ -11,7 +11,7 @@ import torch.nn as nn
 import torch.optim as optim
 # import os.path as osp
 import torchio as tio
-import torchvision.utils as vutils
+# import torchvision.utils as vutils
 from sklearn.model_selection import GroupShuffleSplit, train_test_split
 from torch.utils.data import DataLoader, Dataset
 from torchio.transforms.augmentation.intensity.random_bias_field import \
@@ -34,8 +34,8 @@ SEED_VALUE = 82
 
 def parser():
     parser = argparse.ArgumentParser(description="example")
-    parser.add_argument("--model", type=str, default="VAE")
-    parser.add_argument("--batch_size", type=int, default=32)
+    parser.add_argument("--model", type=str, default="SoftIntroVAE")
+    parser.add_argument("--batch_size", type=int, default=16)
     parser.add_argument("--epoch", type=int, default=200)
     parser.add_argument("--lr", type=float, default=0.001)
     parser.add_argument("--log", type=str, default="output")
@@ -107,7 +107,7 @@ def main():
         net = models.ResNetVAE(12, [[12,1,2],[24,1,2],[32,2,2],[48,2,2]])
         log_path = "./logs/" + args.log + "_ResNetVAE/"
         print("net: ResNetVAE") # ------------------------------------- #
-    elif args.model == "softintroVAE":
+    elif args.model == "SoftIntroVAE":
         net = models.SoftIntroVAE(12, [[12,1,2],[24,1,2],[32,2,2],[48,2,2]])
         log_path = "./logs/" + args.log + "_SoftIntroVAE/"
         print("net: SoftIntroVAE") # ------------------------------------- #
@@ -121,7 +121,7 @@ def main():
 
 
 
-#   os.environ["CUDA_VISIBLE_DEVICES"] = "4, 5, 6, 7",   #  os.environ["CUDA_VISIBLE_DEVICES"]="6"
+    os.environ["CUDA_VISIBLE_DEVICES"] = "6"   #  os.environ["CUDA_VISIBLE_DEVICES"]="4,5,6,7"
     device = torch.device("cuda" if torch.cuda.is_available() and True else "cpu")
     print("device:", device)
 
@@ -134,24 +134,22 @@ def main():
             net, val_loader, CLASS_MAP, device, log_path)
 
     elif args.train_or_loadnet == "train":
-
         if args.model == "ResNetCAE":
             train_loss, val_loss = trainer.train_ResNetCAE(net, train_loader, val_loader, args.epoch, args.lr, device, log_path)
             torch.save(net.state_dict(), log_path + "resnetcae_weight.pth")
             print("saved net weight!")
             train_result.result_ae(train_loss, val_loss, log_path)
-
         elif args.model == "ResNetVAE":
             train_loss, val_loss = trainer.train_ResNetVAE(net, train_loader, val_loader, args.epoch, args.lr, device, log_path)
             torch.save(net.state_dict(), log_path + "resnetvae_weight.pth")
             print("saved net weight!")
             train_result.result_ae(train_loss, val_loss, log_path)
             #ここの result_ae は result_AutoEncoder
-        elif args.model == "softintroVAE":
-            train_loss, val_loss = trainer.train_soft_intro_vae(net, train_loader, val_loader, args.epoch, args.lr, device, log_path)
+        elif args.model == "SoftIntroVAE":
+            train_lossE, val_lossE = trainer.train_soft_intro_vae(net, train_loader, val_loader, args.epoch, args.lr, device, log_path)
             torch.save(net.state_dict(), log_path + "soft_intro_vae_weight.pth")
             print("saved net weight!")
-            train_result.result_ae(train_loss, val_loss, log_path)
+            train_result.result_ae(train_lossE, val_lossE, log_path)
 
 
 
