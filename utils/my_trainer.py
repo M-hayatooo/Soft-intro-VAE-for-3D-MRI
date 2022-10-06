@@ -249,7 +249,7 @@ def train_soft_intro_vae(
     gamma_r = 1e-8
     recon_loss_type = "mse"
 #    z_dim=150
-    batch_size = 16
+#    batch_size = 16
 
     if seed != -1:
         random.seed(seed)
@@ -411,8 +411,8 @@ def train_soft_intro_vae(
                 loss_rec = calc_reconstruction_loss(real_batch, rec, loss_type=recon_loss_type, reduction="mean")
                 lossE_real_kl = calc_kl(real_logvar, real_mu, reduce="mean")
 
-                rec_rec, z_rec, rec_mu, rec_logvar = model(rec.detach())
-                rec_fake, z_fake, fake_mu, fake_logvar = model(fake.detach())
+                rec_mu, rec_logvar, z_rec, rec_rec = model(rec.detach())
+                fake_mu, fake_logvar, z_fake, rec_fake = model(fake.detach())
 
                 fake_kl_e = calc_kl(fake_logvar, fake_mu, reduce="none")
                 rec_kl_e = calc_kl(rec_logvar, rec_mu, reduce="none")
@@ -431,8 +431,11 @@ def train_soft_intro_vae(
 
                 loss_rec = calc_reconstruction_loss(real_batch, rec.detach(),loss_type=recon_loss_type, reduction="mean")
 
-                rec_mu, rec_logvar, rec_rec, z_rec = model(rec.detach())
-                fake_mu, fake_logvar, rec_fake, z_fake = model(fake.detach())
+                # rec_mu, rec_logvar, rec_rec, z_rec = model(rec.detach())
+                # fake_mu, fake_logvar, rec_fake, z_fake = model(fake.detach())
+
+                rec_mu, rec_logvar, z_rec, rec_rec = model(rec.detach())
+                fake_mu, fake_logvar, z_fake, rec_fake = model(fake.detach())
 
                 rec_rec = model.decode(z_rec)#.detach())
                 rec_fake = model.decode(z_fake)#.detach())
