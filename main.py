@@ -45,6 +45,20 @@ def parser():
     return args
 
 
+def fix_seed(seed):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.backends.cudnn.benchmark = True #この行をFalseにすると再現性はとれるが、速度が落ちる
+    torch.backends.cudnn.deterministic = True
+    return
+fix_seed(0)
+
+CLASS_MAP = {"CN": 0, "AD": 1}
+SEED_VALUE = 0
+
+
+
 # TorchIO
 class ImageTransformio():
     def __init__(self):
@@ -150,7 +164,6 @@ def main():
             torch.save(net.state_dict(), log_path + "soft_intro_vae_weight.pth")
             print("saved net weight!")
             train_result.result_ae(train_lossE, val_lossE, log_path)
-
 
 
 if __name__ == "__main__":
