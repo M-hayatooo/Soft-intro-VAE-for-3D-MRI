@@ -119,11 +119,8 @@ def train_soft_intro_vae(z_dim=150, lr_e=2e-4, lr_d=2e-4, batch_size=16, num_wor
         batch_kls_rec = []
         batch_rec_errs = []
 
-#        for iteration, batch in enumerate(train_data_loader, 0):
+
         for iteration, (batch, labels) in enumerate(train_data_loader, 0):# iterationには 自動で割り振られたindex番号が適用される
-            # for batch, labels in train_data_loader: # iterationには 自動で割り振られたindex番号が適用される
-            # enmuerate の第２引数はindexの開始番号の指定
-            # --------------train------------
             b_size = batch.size(0)
 
             noise_batch = torch.randn(size=(b_size, 1, 5, 6, 5)).to(device)
@@ -158,7 +155,7 @@ def train_soft_intro_vae(z_dim=150, lr_e=2e-4, lr_d=2e-4, batch_size=16, num_wor
             optimizer_e.zero_grad()
             lossE.backward()
             optimizer_e.step()
-       #     print("finish updateE")
+
             # ========= Update D ==================
             for param in model.encoder.parameters():
                 param.requires_grad = False
@@ -225,8 +222,6 @@ def train_soft_intro_vae(z_dim=150, lr_e=2e-4, lr_d=2e-4, batch_size=16, num_wor
         rec_errs.append(np.mean(batch_rec_errs))
 
     return model
-
-
 
 
 
