@@ -1,15 +1,25 @@
 import argparse
 import os
+import random
+import time
 
+import matplotlib.pyplot as plt
 import numpy as np
 import torch
+# pytorch
+import torch.nn as nn
+import torch.optim as optim
+# import os.path as osp
 import torchio as tio
+import torchvision.utils as vutils
 from sklearn.model_selection import GroupShuffleSplit, train_test_split
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Dataset
 from torchio.transforms.augmentation.intensity.random_bias_field import \
     RandomBiasField
 from torchio.transforms.augmentation.intensity.random_noise import RandomNoise
 from torchvision import transforms
+from torchvision.utils import make_grid
+from tqdm import tqdm
 
 import models.models as models
 import utils.confusion as confusion
@@ -24,8 +34,7 @@ SEED_VALUE = 82
 
 def parser():
     parser = argparse.ArgumentParser(description="example")
-    # CNN or CAE or VAE
-    parser.add_argument("--model", type=str, default="ResNetVAE")
+    parser.add_argument("--model", type=str, default="VAE")
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--epoch", type=int, default=200)
     parser.add_argument("--lr", type=float, default=0.001)
@@ -94,31 +103,6 @@ def main():
         net = models.FujiNet1()
         log_path = "./logs/" + args.log + "_cnn-IIP1-drop+DA3/"
         print("net: CNN") # ------------------------------------- #
-    elif args.model == "CAE":
-        net = models.Cae()
-        #net = models.CAE3()
-        log_path = "./logs/" + args.log + "_cae/"
-        print("net: CAE") # ------------------------------------- #
-    elif args.model == "Caee":
-        net = models.Caee() ### """ loadnet """
-        log_path = "./logs/" + args.log + "_caee/"
-        print("net: Caee")
-    elif args.model == "Cae_avgpool":
-        net = models.Cae() #### ------------------------------------- #
-        log_path = "./logs/" + args.log + "_cae_avgpool/"
-        print("net: Cae_avgpool")
-    elif args.model == "Cae_nearest":
-        net = models.Cae() #### ------------------------------------- #
-        log_path = "./logs/" + args.log + "_cae_nearest/"
-        print("net: Cae_nearest")
-    elif args.model == "VAE":
-        net = models.Vae()
-        log_path = "./logs/" + args.log + "_vae/"
-        print("net: VAE") # ------------------------------------- #
-    elif args.model == "Vaee":
-        net = models.Vaee()
-        log_path = "./logs/" + args.log + "_vaee/"
-        print("net: Vaee") # ------------------------------------- #
     elif args.model == "ResNetCAE":
         net = models.ResNetCAE(12, [[12,1,2],[24,1,2],[32,2,2],[48,2,2]]) # ここでmodelの block 内容指定
         log_path = "./logs/" + args.log + "_ResNetCAE/"
@@ -127,6 +111,10 @@ def main():
         net = models.ResNetVAE(12, [[12,1,2],[24,1,2],[32,2,2],[48,2,2]])
         log_path = "./logs/" + args.log + "_ResNetVAE/"
         print("net: ResNetVAE") # ------------------------------------- #
+    elif args.model == "softintroVAE":
+        net = models.SoftIntroVAE(12, [[12,1,2],[24,1,2],[32,2,2],[48,2,2]])
+        log_path = "./logs/" + args.log + "_SoftIntroVAE/"
+        print("net: SoftIntroVAE") # ------------------------------------- #
 
 
     os.makedirs(log_path, exist_ok=True)
@@ -156,44 +144,7 @@ def main():
             train_loss, train_acc, val_loss, val_acc = trainer.train(net, train_loader, val_loader, args.epoch, args.lr, device, log_path)
             # torch.save(net.state_dict(), log_path + "weight.pth")
             train_result.result(train_acc, train_loss, val_acc, val_loss, log_path)
-            # とりあえずvalidationで確認 テストデータあとで作る
             confusion.make_confusion_matrix(net, val_loader, CLASS_MAP, device, log_path)
-
-        elif args.model == "CAE":
-            train_loss, val_loss = trainer.train_cae(net, train_loader, val_loader, args.epoch, args.lr, device, log_path)
-            torch.save(net.state_dict(), log_path + "cae_weight.pth")
-            print("saved net weight!")
-            train_result.result_ae(train_loss, val_loss, log_path)
-
-        elif args.model == "Caee":
-            train_loss, val_loss = trainer.train_cae(net, train_loader, val_loader, args.epoch, args.lr, device, log_path)
-            torch.save(net.state_dict(), log_path + "caee_weight.pth")
-            print("saved net weight!")
-            train_result.result_ae(train_loss, val_loss, log_path)
-
-        elif args.model == "Cae_avgpool":
-            train_loss, val_loss = trainer.train_cae(net, train_loader, val_loader, args.epoch, args.lr, device, log_path)
-            torch.save(net.state_dict(), log_path + "cae_avgpool_weight.pth")
-            print("saved net weight!")
-            train_result.result_ae(train_loss, val_loss, log_path)
-
-        elif args.model == "Cae_nearest":
-            train_loss, val_loss = trainer.train_cae(net, train_loader, val_loader, args.epoch, args.lr, device, log_path)
-            torch.save(net.state_dict(), log_path + "cae_nearest_weight.pth")
-            print("saved net weight!")
-            train_result.result_ae(train_loss, val_loss, log_path)
-
-        elif args.model == "VAE":
-            train_loss, val_loss = trainer.train_vae(net, train_loader, val_loader, args.epoch, args.lr, device, log_path)
-            torch.save(net.state_dict(), log_path + "vae_weight.pth")
-            print("saved net weight!")
-            train_result.result_ae(train_loss, val_loss, log_path)
-
-        elif args.model == "Vaee":
-            train_loss, val_loss = trainer.train_vae(net, train_loader, val_loader, args.epoch, args.lr, device, log_path)
-            torch.save(net.state_dict(), log_path + "vaee_weight.pth")
-            print("saved net weight!")
-            train_result.result_ae(train_loss, val_loss, log_path)
 
         elif args.model == "ResNetCAE":
             train_loss, val_loss = trainer.train_ResNetCAE(net, train_loader, val_loader, args.epoch, args.lr, device, log_path)
@@ -207,6 +158,12 @@ def main():
             print("saved net weight!")
             train_result.result_ae(train_loss, val_loss, log_path)
             #ここの result_ae は result_AutoEncoder
+        elif args.model == "softintroVAE":
+            train_loss, val_loss = trainer.train_soft_intro_vae(net, train_loader, val_loader, args.epoch, args.lr, device, log_path)
+            torch.save(net.state_dict(), log_path + "soft_intro_vae_weight.pth")
+            print("saved net weight!")
+            train_result.result_ae(train_loss, val_loss, log_path)
+
 
 
 if __name__ == "__main__":
