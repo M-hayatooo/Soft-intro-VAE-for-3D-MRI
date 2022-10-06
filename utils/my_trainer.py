@@ -173,10 +173,8 @@ def train_soft_intro_vae(z_dim=150, lr_e=2e-4, lr_d=2e-4, batch_size=16, num_wor
             fake_mu, fake_logvar = model.encode(fake)
             z_fake = reparameterize(fake_mu, fake_logvar)
 
-            # rec_rec = model.decode(z_rec.detach())
-            # rec_fake = model.decode(z_fake.detach())
-            rec_rec = model.decode(z_rec)
-            rec_fake = model.decode(z_fake)
+            rec_rec = model.decode(z_rec) # rec_rec = model.decode(z_rec.detach())
+            rec_fake = model.decode(z_fake) # rec_fake = model.decode(z_fake.detach())
 
             loss_rec_rec = calc_reconstruction_loss(rec.detach(), rec_rec, loss_type=recon_loss_type, reduction="mean")
             loss_fake_rec = calc_reconstruction_loss(fake.detach(), rec_fake, loss_type=recon_loss_type, reduction="mean")
@@ -222,7 +220,6 @@ def train_soft_intro_vae(z_dim=150, lr_e=2e-4, lr_d=2e-4, batch_size=16, num_wor
         rec_errs.append(np.mean(batch_rec_errs))
 
     return model
-
 
 
 # trainer for ResNet mackysan VAE
