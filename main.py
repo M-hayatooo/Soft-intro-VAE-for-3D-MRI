@@ -99,11 +99,7 @@ def main():
 
     args = parser()
 
-    if args.model == "CNN":
-        net = models.FujiNet1()
-        log_path = "./logs/" + args.log + "_cnn-IIP1-drop+DA3/"
-        print("net: CNN") # ------------------------------------- #
-    elif args.model == "ResNetCAE":
+    if args.model == "ResNetCAE":
         net = models.ResNetCAE(12, [[12,1,2],[24,1,2],[32,2,2],[48,2,2]]) # ここでmodelの block 内容指定
         log_path = "./logs/" + args.log + "_ResNetCAE/"
         print("net: ResNetCAE") # ------------------------------------- #
@@ -140,13 +136,13 @@ def main():
 
     elif args.train_or_loadnet == "train":
         # CNN or CAE or VAE
-        if args.model == "CNN":
-            train_loss, train_acc, val_loss, val_acc = trainer.train(net, train_loader, val_loader, args.epoch, args.lr, device, log_path)
-            # torch.save(net.state_dict(), log_path + "weight.pth")
-            train_result.result(train_acc, train_loss, val_acc, val_loss, log_path)
-            confusion.make_confusion_matrix(net, val_loader, CLASS_MAP, device, log_path)
+        # if args.model == "CNN":
+        #     train_loss, train_acc, val_loss, val_acc = trainer.train(net, train_loader, val_loader, args.epoch, args.lr, device, log_path)
+        #     # torch.save(net.state_dict(), log_path + "weight.pth")
+        #     train_result.result(train_acc, train_loss, val_acc, val_loss, log_path)
+        #     confusion.make_confusion_matrix(net, val_loader, CLASS_MAP, device, log_path)
 
-        elif args.model == "ResNetCAE":
+        if args.model == "ResNetCAE":
             train_loss, val_loss = trainer.train_ResNetCAE(net, train_loader, val_loader, args.epoch, args.lr, device, log_path)
             torch.save(net.state_dict(), log_path + "resnetcae_weight.pth")
             print("saved net weight!")
