@@ -408,7 +408,7 @@ def train_soft_intro_vae(
                 z = model.reparameterize(real_mu, real_logvar)
                 rec = model.decode(z)
 
-                loss_rec = calc_reconstruction_loss(real_batch, rec)
+                loss_rec = calc_reconstruction_loss(real_batch, rec, loss_type=recon_loss_type, reduction="mean")
                 lossE_real_kl = calc_kl(real_logvar, real_mu, reduce="mean")
 
                 rec_rec, z_rec, rec_mu, rec_logvar = model(rec.detach())
@@ -417,8 +417,8 @@ def train_soft_intro_vae(
                 fake_kl_e = calc_kl(fake_logvar, fake_mu, reduce="none")
                 rec_kl_e = calc_kl(rec_logvar, rec_mu, reduce="none")
 
-                loss_fake_rec = calc_reconstruction_loss(fake, rec_fake)
-                loss_rec_rec = calc_reconstruction_loss(rec, rec_rec)
+                loss_fake_rec = calc_reconstruction_loss(fake, rec_fake, loss_type=recon_loss_type, reduction="none")
+                loss_rec_rec = calc_reconstruction_loss(rec, rec_rec, loss_type=recon_loss_type, reduction="none")
 
                 exp_elbo_fake = (-2 * scale * (beta_rec * loss_fake_rec + beta_neg * fake_kl_e)).exp().mean()
                 exp_elbo_rec = (-2 * scale * (beta_rec * loss_rec_rec + beta_neg * rec_kl_e)).exp().mean()
@@ -427,16 +427,18 @@ def train_soft_intro_vae(
 
                 val_lossE += lossE.item()
 
-                loss_rec = calc_reconstruction_loss(real_batch, rec.detach())
+                #======================== Decoder Part ===========================
 
-                rec_rec, z_rec, rec_mu, rec_logvar = model(rec.detach())
-                rec_fake, z_fake, fake_mu, fake_logvar = model(fake.detach())
+                loss_rec = calc_reconstruction_loss(real_batch, rec.detach(),loss_type=recon_loss_type, reduction="mean")
+
+                rec_mu, rec_logvar, rec_rec, z_rec = model(rec.detach())
+                fake_mu, fake_logvar, rec_fake, z_fake = model(fake.detach())
 
                 rec_rec = model.decode(z_rec)#.detach())
                 rec_fake = model.decode(z_fake)#.detach())
 
-                loss_rec_rec = calc_reconstruction_loss(rec.detach(), rec_rec)
-                loss_fake_rec = calc_reconstruction_loss(fake.detach(), rec_fake)
+                loss_rec_rec = calc_reconstruction_loss(rec.detach(), rec_rec,loss_type=recon_loss_type, reduction="mean")
+                loss_fake_rec = calc_reconstruction_loss(fake.detach(), rec_fake,loss_type=recon_loss_type, reduction="mean")
 
                 rec_kl = calc_kl(rec_logvar, rec_mu, reduce="mean")
                 fake_kl = calc_kl(fake_logvar, fake_mu, reduce="mean")
