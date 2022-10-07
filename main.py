@@ -35,7 +35,7 @@ def parser():
     parser = argparse.ArgumentParser(description="example")
     parser.add_argument("--model", type=str, default="SoftIntroVAE")
     parser.add_argument("--batch_size", type=int, default=16)
-    parser.add_argument("--epoch", type=int, default=200)
+    parser.add_argument("--epoch", type=int, default=500)
     parser.add_argument("--lr", type=float, default=0.001)
     parser.add_argument("--log", type=str, default="output")
     parser.add_argument("--n_train", type=float, default=0.8)
@@ -54,37 +54,10 @@ def fix_seed(seed):
 fix_seed(0)
 
 
-
-
 def seed_worker(worker_id):
     worker_seed = torch.initial_seed() % 2 ** 32
     np.random.seed(worker_seed)
     random.seed(worker_seed)
-
-
-
-
-# TorchIO
-class ImageTransformio():
-    def __init__(self):
-        self.transform = {
-            "train": tio.Compose([
-                tio.transforms.RandomAffine(scales=(0.9, 1.2), degrees=10, isotropic=True,
-                                 center="image", default_pad_value="mean", image_interpolation='linear'),
-                # tio.transforms.RandomNoise(),
-                tio.transforms.RandomBiasField(),
-                # tio.ZNormalization(),
-                tio.transforms.RescaleIntensity((0, 1))
-            ]),
-            "val": tio.Compose([
-                # tio.ZNormalization(),
-                # tio.RescaleIntensity((0, 1))  # , in_min_max=(0.1, 255)),
-            ])
-        }
-
-    def __call__(self, img, phase="train"):
-        img_t = torch.tensor(img)
-        return self.transform[phase](img_t)
 
 
 def load_dataloader(n_train_rate, batch_size):
@@ -99,7 +72,6 @@ def load_dataloader(n_train_rate, batch_size):
         labels[i] = CLASS_MAP[data[i]["label"]]
     pids = np.array(pids)
 
-
     gss = GroupShuffleSplit(test_size=0.2, random_state=42)
     tid, vid = list(gss.split(voxels, groups=pids))[0]
     train_voxels = voxels[tid]
@@ -110,65 +82,19 @@ def load_dataloader(n_train_rate, batch_size):
     train_dataset = BrainDataset(train_voxels, train_labels)
     val_dataset = BrainDataset(val_voxels, val_labels)
 
-
-
-    for i in range(len(data)):
-        pids.append(data[i]["pid"])
-    gss = GroupShuffleSplit(test_size=1 - n_train_rate, random_state=SEED_VALUE)
-    train_idx, val_idx = list(gss.split(data, groups=pids))[0]
-    train_data = data[train_idx]
-    val_data = data[val_idx]
-
     g = torch.Generator()
     g.manual_seed(0)
-
-    #num_workers = 2
     batch_size = 16
-    train_dataset = BrainDataset(train_voxels, train_labels)
-    val_dataset = BrainDataset(val_voxels, val_labels)
-    train_dataloader = DataLoader(
-        train_dataset,
-        batch_size=batch_size,
-        num_workers=os.cpu_count(),
-        pin_memory=True,
-        shuffle=True,
-        worker_init_fn=seed_worker,
-        generator=g
-    )
-    val_dataloader = DataLoader(
-        val_dataset,
-        batch_size=batch_size,
-        num_workers=os.cpu_count(),
-        pin_memory=True,
-        shuffle=False,
-        worker_init_fn=seed_worker,
-        generator=g
-    )
-
+    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, num_workers=os.cpu_count(),
+                                  pin_memory=True, shuffle=True, worker_init_fn=seed_worker, generator=g)
+    val_dataloader = DataLoader(val_dataset, batch_size=batch_size, num_workers=os.cpu_count(),
+                                pin_memory=True, shuffle=False, worker_init_fn=seed_worker, generator=g)
 
     #train_datadict, val_datadict = train_test_split(dataset, test_size=1-n_train_rate, shuffle=True, random_state=SEED_VALUE)
-    transform = ImageTransformio()
-    # transform = None
-    train_dataset = BrainDataset(data_dict=train_data, transform=transform, phase="train")
-    val_dataset = BrainDataset(data_dict=val_data, transform=transform, phase="val")
-
-    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, num_workers=os.cpu_count(), pin_memory=True, shuffle=True)
-    val_dataloader = DataLoader(val_dataset, batch_size=batch_size, num_workers=os.cpu_count(), pin_memory=True, shuffle=False)
+    # train_dataloader = DataLoader(train_dataset, batch_size=batch_size, num_workers=os.cpu_count(), pin_memory=True, shuffle=True)
+    # val_dataloader = DataLoader(val_dataset, batch_size=batch_size, num_workers=os.cpu_count(), pin_memory=True, shuffle=False)
 
     return train_dataloader, val_dataloader
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
