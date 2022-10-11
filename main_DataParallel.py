@@ -28,7 +28,6 @@ import utils.confusion as confusion
 import utils.my_trainer as trainer
 import utils.train_result as train_result
 from datasets.dataset import CLASS_MAP, load_data
-#from utils.data_class import BrainDataset
 from utils.data_load import BrainDataset
 
 
@@ -39,6 +38,8 @@ def fix_seed(seed):
     torch.backends.cudnn.benchmark = True #この行をFalseにすると再現性はとれるが、速度が落ちる
     torch.backends.cudnn.deterministic = True
     return
+
+
 fix_seed(0)
 
 CLASS_MAP = {"CN": 0, "AD": 1, "EMCI":2, "LMCI":3, "SMC":4, "MCI":5}
@@ -54,8 +55,6 @@ for i in tqdm(range(len(data))):
     voxels[i] = data[i]["voxel"]
     labels[i] = CLASS_MAP[data[i]["label"]]
 pids = np.array(pids)
-
-
 
 
 gss = GroupShuffleSplit(test_size=0.2, random_state=42)
@@ -74,7 +73,6 @@ def seed_worker(worker_id):
 g = torch.Generator()
 g.manual_seed(0)
 
-#num_workers = 2
 batch_size = 16
 train_dataset = BrainDataset(train_voxels, train_labels)
 val_dataset = BrainDataset(val_voxels, val_labels)
@@ -430,11 +428,6 @@ def train_soft_intro_vae(z_dim=150, lr_e=2e-4, lr_d=2e-4, batch_size=16, num_wor
     for epoch in range(start_epoch, num_epochs):
         loop_start_time = time.time()
         diff_kls = []
-        # save models
-        # if epoch % save_interval == 0 and epoch > 0:
-        #     save_epoch = (epoch // save_interval) * save_interval
-        #     prefix = dataset + "_soft_intro_vae" + "_betas_" + str(beta_kl) + "_" + str(beta_neg) + "_" + str(beta_rec) + "_"
-        #     save_checkpoint(model, save_epoch, cur_iter, prefix)
 
         model.train()
         batch_kls_real = []
@@ -583,10 +576,7 @@ def train_soft_intro_vae(z_dim=150, lr_e=2e-4, lr_d=2e-4, batch_size=16, num_wor
         print(f"Epoch [{epoch+1}/{num_epochs}]  train_lossE:{train_lossE:.3f}  train_lossD:{train_lossD:.3f}  val_lossE:{val_lossE:.3f}  "
               f"val_lossD:{val_lossD:.3f}, 1epoch:{(now_time - loop_start_time):.1f}秒  total time:{(now_time - start_time):.1f}秒")
 
-    #    max_imgs = min(batch.size(0), 16)
-        #epoch_fin_time = time.time()
         _, _, _, rec_det = model(real_batch)
-        #max_imgs = min(batch.size(0), 16)
 
     e_scheduler.step()
     d_scheduler.step()
