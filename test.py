@@ -555,12 +555,12 @@ def train_soft_intro_vae(z_dim=150, lr_e=2e-4, lr_d=2e-4, batch_size=16, num_wor
 
         if epoch % 50 == 0:
             savename = f"softintrovae_weight_epoch{epoch}.pth"
-        #    torch.save(model.state_dict(), file_path)
+        #   torch.save(model.state_dict(), file_path)
             torch.save(model.state_dict(), log_path + savename)
-#            torch.save(model.state_dict(), log_path + f"softintroVAE_weight_epoch{str(epoch)}.pth")
+#           torch.save(model.state_dict(), log_path + f"softintroVAE_weight_epoch{str(epoch)}.pth")
         now_time = time.time()
         print(f"Epoch [{epoch+1}/{num_epochs}] train_lossE:{train_lossE:.4f}, train_lossD:{train_lossD:.4f},"
-              f" 1epoch{now_time - loop_start_time:.1f}秒/epoch, total time:{(now_time - start_time)/60:.1f}分")
+              f" 1epoch{now_time - loop_start_time:.1f}秒, total time:{(now_time - start_time)/60:.1f}分")
 
 
     e_scheduler.step()
