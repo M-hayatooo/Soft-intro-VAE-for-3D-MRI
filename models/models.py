@@ -193,10 +193,7 @@ class VAEResNetEncoder(ResNetEncoder):
 class ResNetVAE(BaseVAE):
     def __init__(self, in_ch, block_setting) -> None:
         super(ResNetVAE, self).__init__()
-        self.encoder = VAEResNetEncoder(
-            in_ch=in_ch,
-            block_setting=block_setting,
-        )
+        self.encoder = VAEResNetEncoder(in_ch=in_ch, block_setting=block_setting)
         self.decoder = ResNetDecoder(self.encoder)
 
     def reparamenterize(self, mu, logvar):
@@ -210,6 +207,11 @@ class ResNetVAE(BaseVAE):
         x_re = self.decoder(z)
         return x_re, mu, logvar
 
+    def loss(self, x_re, x, mu, logvar):
+        re_err = torch.sqrt(torch.mean((x_re - x)**2)) # ==  self.Rmse(x_re, x)
+        kld = -0.5 * torch.sum(1 + logvar - mu**2 - logvar.exp())
+        return re_err + kld
+
 #    def Rmse(x_re, x):
 #        return torch.sqrt(torch.mean((x_re - x)**2))
 
@@ -218,18 +220,11 @@ class ResNetVAE(BaseVAE):
 #        kld = -0.5 * torch.sum(1 + logvar - mu**2 - logvar.exp())
 #        return re_err + kld
 
-    def loss(self, x_re, x, mu, logvar):
-        re_err = torch.sqrt(torch.mean((x_re - x)**2)) # ==  self.Rmse(x_re, x)
-        kld = -0.5 * torch.sum(1 + logvar - mu**2 - logvar.exp())
-        return re_err + kld
 
 class SoftIntroVAE(nn.Module):
     def __init__(self, in_ch, block_setting) -> None:
         super(SoftIntroVAE, self).__init__()
-        self.encoder = VAEResNetEncoder(
-            in_ch=in_ch,
-            block_setting=block_setting,
-        )
+        self.encoder = VAEResNetEncoder(in_ch=in_ch, block_setting=block_setting)
         self.decoder = ResNetDecoder(self.encoder)
 
     def reparameterize(self, mu, logvar):
