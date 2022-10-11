@@ -44,8 +44,8 @@ fix_seed(0)
 
 CLASS_MAP = {"CN": 0, "AD": 1, "EMCI":2, "LMCI":3, "SMC":4, "MCI":5}
 SEED_VALUE = 0
-
-data = load_data(kinds=["ADNI2", "ADNI2-2"], classes=["CN", "AD"], unique=False, blacklist=True)
+#data = load_data(kinds=["ADNI2", "ADNI2-2"], classes=["CN", "AD"], unique=False, blacklist=True)
+data = load_data(kinds=["ADNI2", "ADNI2-2"], classes=["CN", "AD", "EMCI", "LMCI", "SMC", "MCI"], unique=False, blacklist=True)
 
 pids = []
 voxels = np.zeros((len(data), 80, 96, 80))
@@ -73,7 +73,11 @@ def seed_worker(worker_id):
 g = torch.Generator()
 g.manual_seed(0)
 
-batch_size = 16
+
+# ===  batch size definetion  ===
+batch_size = 64
+# === === === === === === === ===
+
 train_dataset = BrainDataset(train_voxels, train_labels)
 val_dataset = BrainDataset(val_voxels, val_labels)
 train_dataloader = DataLoader(train_dataset,batch_size=batch_size,num_workers=os.cpu_count(), pin_memory=True,shuffle=True,worker_init_fn=seed_worker,generator=g)
@@ -377,7 +381,7 @@ class SoftIntroVAE(nn.Module):
         return y
 
 
-def train_soft_intro_vae(z_dim=150, lr_e=2e-4, lr_d=2e-4, batch_size=16, num_workers=os.cpu_count(), start_epoch=0,
+def train_soft_intro_vae(lr_e=2e-4, lr_d=2e-4, batch_size=batch_size, start_epoch=0,
                          num_epochs=500, num_vae=0, save_interval=5000, recon_loss_type="mse",
                          beta_kl=1.0, beta_rec=1.0, beta_neg=1.0, test_iter=1000, seed=-1, pretrained=None,
                          device=torch.device("cpu"), num_row=8, gamma_r=1e-8):
@@ -414,7 +418,7 @@ def train_soft_intro_vae(z_dim=150, lr_e=2e-4, lr_d=2e-4, batch_size=16, num_wor
 
     start_time = time.time()
 
-    cur_iter = 0
+#    cur_iter = 0
     kls_real = []
     kls_fake = []
     kls_rec = []
@@ -591,24 +595,28 @@ def train_soft_intro_vae(z_dim=150, lr_e=2e-4, lr_d=2e-4, batch_size=16, num_wor
 
 
 # hyperparameters
-device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu") #ここでもしcuda番号指定したら、Data Parallel のcuda開始番号と一致させないとダメ
 print("device:", device)
 model = SoftIntroVAE(12, [[12,1,2],[24,1,2],[32,2,2],[48,2,2]], conditional=False).to(device)
+###
+#  ==============   Data Parallel 指定  ================
+###
 model = torch.nn.DataParallel(model, device_ids=[1, 2, 3, 4])
+###
 print("Use DataParallel device_ids=1,2,3,4") # ここ手動...
 num_epochs = 501
 lr = 2e-4
-batch_size = 16
+#batch_size = 16  batch size is definited above
 beta_kl = 1.0
 beta_rec = 1.0
 beta_neg = 256
 
-train_lossE, train_lossD, val_lossE, val_lossD = train_soft_intro_vae(z_dim=150, lr_e=2e-4, lr_d=2e-4, batch_size=batch_size, num_workers=os.cpu_count(), start_epoch=0,
+train_lossE, train_lossD, val_lossE, val_lossD = train_soft_intro_vae(lr_e=2e-4, lr_d=2e-4, batch_size=batch_size, start_epoch=0,
                                                                       num_epochs=num_epochs, num_vae=0, save_interval=5000, recon_loss_type="mse",
                                                                       beta_kl=beta_kl, beta_rec=beta_rec, beta_neg=beta_neg, test_iter=1000, seed=-1, pretrained=None,
                                                                       device=device)
 # train soft intro vae の引数の中にpretrainedがあるが、指定すれば呼べる？？？？
 log_path = "_SoftIntroVAE/"
-torch.save(model.state_dict(), log_path + "soft_intro_vae_weight.pth")
+torch.save(model.state_dict(), log_path + "S-IntroVAE_weight.pth")
 print("saved net weight!")
 train_result.result_ae(train_lossE, train_lossD, val_lossE, val_lossD, log_path)
