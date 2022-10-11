@@ -468,8 +468,8 @@ def train_soft_intro_vae(
     #     kls_rec.append(np.mean(batch_kls_rec))
     #     rec_errs.append(np.mean(batch_rec_errs))
         now_time = time.time()
-        print(f"Epoch [{epoch+1}/{epochs}], train_lossE: {train_lossE:.3f}, train_lossD: {train_lossD:.3f}, val_lossE: {val_lossE:.3f} "
-              f"val_lossD: {val_lossD:.3f}, {now_time - loop_start_time:.3f}秒/epoch, total time {now_time - start_time:.3f}秒")
+        print(f"Epoch [{epoch+1}/{epochs}]  train_lossE:{train_lossE:.3f}  train_lossD:{train_lossD:.3f}  val_lossE:{val_lossE:.3f}  "
+              f"val_lossD:{val_lossD:.3f}, 1epoch:{(now_time - loop_start_time):.1f}秒  total time:{(now_time - start_time):.1f}秒")
 
         train_lossE_list.append(train_lossE)
         train_lossD_list.append(train_lossD)
