@@ -479,7 +479,7 @@ def train_soft_intro_vae(
     e_scheduler.step()
     d_scheduler.step()
 
-    print("Finished Traininig !!")
+    print("Finished S-IntroVAE Traininig !!")
     return train_lossE_list, train_lossD_list, val_lossE_list, val_lossD_list
 
 
@@ -493,8 +493,8 @@ def train_ResNetVAE(
     device=torch.device("cpu"),
     path="./output_ResNetVAE/",
 ):
-    path = path + "train_result.csv"
-    with open(path, "w") as f:
+    path2 = path + "train_result.csv"
+    with open(path2, "w") as f:
         writer = csv.writer(f)
         writer.writerow(["epoch", "train_loss", "val_loss"])
 
@@ -532,6 +532,11 @@ def train_ResNetVAE(
 
         val_loss /= len(val_loader)
 
+        savename = f"ResNetVAE_param_epoch{epoch}.pth"
+    #   torch.save(model.state_dict(), file_path)
+        torch.save(net.state_dict(), path + savename)
+#       torch.save(model.state_dict(), log_path + f"softintroVAE_weight_epoch{str(epoch)}.pth")
+
         now_time = time.time()
         print(f"Epoch [{epoch+1}/{epochs}] train_loss:{train_loss:.3f}  val_loss:{val_loss:.3f} "
               f" 1epoch:{(now_time - loop_start_time):.1f}秒  total time:{(now_time - start_time):.1f}秒")
@@ -539,7 +544,7 @@ def train_ResNetVAE(
         train_loss_list.append(train_loss)
         val_loss_list.append(val_loss)
 
-    print("Finished Traininig")
+    print("Finished ResNetVAE Traininig")
     return train_loss_list, val_loss_list
 # --------------------------------------------------------------------------------#
 
