@@ -27,7 +27,7 @@ import models.models as models
 import utils.confusion as confusion
 import utils.my_trainer as trainer
 import utils.train_result as train_result
-from datasets.dataset import load_data
+from datasets.dataset import CLASS_MAP, load_data
 #from utils.data_class import BrainDataset
 from utils.data_load import BrainDataset
 
@@ -41,8 +41,7 @@ def fix_seed(seed):
     return
 fix_seed(0)
 
-
-CLASS_MAP = {"CN": 0, "AD": 1}
+CLASS_MAP = {"CN": 0, "AD": 1, "EMCI":2, "LMCI":3, "SMC":4, "MCI":5}
 SEED_VALUE = 0
 
 data = load_data(kinds=["ADNI2", "ADNI2-2"], classes=["CN", "AD"], unique=False, blacklist=True)
@@ -57,7 +56,7 @@ for i in tqdm(range(len(data))):
 pids = np.array(pids)
 
 
-from datasets.dataset import CLASS_MAP
+
 
 gss = GroupShuffleSplit(test_size=0.2, random_state=42)
 tid, vid = list(gss.split(voxels, groups=pids))[0]
@@ -286,10 +285,7 @@ class BaseVAE(nn.Module):
 class ResNetCAE(BaseCAE):
     def __init__(self, in_ch, block_setting) -> None:
         super(ResNetCAE, self).__init__()
-        self.encoder = ResNetEncoder(
-            in_ch=in_ch,
-            block_setting=block_setting,
-        )
+        self.encoder = ResNetEncoder(in_ch=in_ch, block_setting=block_setting)
         self.decoder = ResNetDecoder(self.encoder)
 
     def forward(self, x):
@@ -318,12 +314,8 @@ class VAEResNetEncoder(ResNetEncoder):
 class ResNetVAE(BaseVAE):
     def __init__(self, in_ch, block_setting) -> None:
         super(ResNetVAE, self).__init__()
-        self.encoder = VAEResNetEncoder(
-            in_ch=in_ch,
-            block_setting=block_setting,
-        )
+        self.encoder = VAEResNetEncoder(in_ch=in_ch, block_setting=block_setting)
         self.decoder = ResNetDecoder(self.encoder)
-
 
     def reparamenterize(self, mu, logvar):
         std = torch.exp(0.5 * logvar)
@@ -388,9 +380,9 @@ class SoftIntroVAE(nn.Module):
 
 
 def train_soft_intro_vae(z_dim=150, lr_e=2e-4, lr_d=2e-4, batch_size=16, num_workers=os.cpu_count(), start_epoch=0,
-                           num_epochs=500, num_vae=0, save_interval=5000, recon_loss_type="mse",
-                           beta_kl=1.0, beta_rec=1.0, beta_neg=1.0, test_iter=1000, seed=-1, pretrained=None,
-                           device=torch.device("cpu"), num_row=8, gamma_r=1e-8):
+                         num_epochs=500, num_vae=0, save_interval=5000, recon_loss_type="mse",
+                         beta_kl=1.0, beta_rec=1.0, beta_neg=1.0, test_iter=1000, seed=-1, pretrained=None,
+                         device=torch.device("cpu"), num_row=8, gamma_r=1e-8):
     if seed != -1:
         random.seed(seed)
         np.random.seed(seed)
@@ -417,7 +409,7 @@ def train_soft_intro_vae(z_dim=150, lr_e=2e-4, lr_d=2e-4, batch_size=16, num_wor
     scale = 1 / (80 * 96 * 80)  # normalizing constant, 's' in the paper  desu
 
 #    train_data_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=os.cpu_count(), pin_memory=True)
-    train_data_loader = DataLoader(train_dataset,batch_size=batch_size,num_workers=os.cpu_count(), pin_memory=True,shuffle=True,worker_init_fn=seed_worker,generator=g)
+    train_loader = DataLoader(train_dataset,batch_size=batch_size,num_workers=os.cpu_count(), pin_memory=True,shuffle=True,worker_init_fn=seed_worker,generator=g)
     val_loader = DataLoader(val_dataset,batch_size=batch_size,num_workers=os.cpu_count(), pin_memory=True,shuffle=False,worker_init_fn=seed_worker,generator=g)
 
 #   train_data_loader = load_data(kinds=["ADNI2","ADNI2-2"], classes=["CN", "AD"], unique=False, blacklist=True)
@@ -433,6 +425,8 @@ def train_soft_intro_vae(z_dim=150, lr_e=2e-4, lr_d=2e-4, batch_size=16, num_wor
     train_lossE_list, train_lossD_list, val_lossE_list, val_lossD_list = [], [], [], []
     train_lossE, train_lossD, val_lossE, val_lossD = 0.0, 0.0, 0.0, 0.0
     start_time = 0.0
+
+# ================= following part is for using DataParallel ==================
     for epoch in range(start_epoch, num_epochs):
         loop_start_time = time.time()
         diff_kls = []
@@ -448,16 +442,14 @@ def train_soft_intro_vae(z_dim=150, lr_e=2e-4, lr_d=2e-4, batch_size=16, num_wor
         batch_kls_rec = []
         batch_rec_errs = []
         counter = 0
-        for batch, labels in train_data_loader:# iterationには 自動で割り振られたindex番号が適用される
-            # --------------train------------
+        for batch, labels in train_loader:
+            # ======================== train ==========================
             b_size = batch.size(0)
 
             noise_batch = torch.randn(size=(b_size, 1, 5, 6, 5)).to(device)
             real_batch = batch.to(device)
 
             # ====================== Update E =========================
-            if counter == 8:
-                print(f"passed {epoch} epoch and start updateE")
             fake = model.module.decode(noise_batch)
 
             real_mu, real_logvar = model.module.encode(real_batch)
@@ -484,8 +476,6 @@ def train_soft_intro_vae(z_dim=150, lr_e=2e-4, lr_d=2e-4, batch_size=16, num_wor
             optimizer_e.zero_grad()
             lossE.backward()
             optimizer_e.step()
-            if counter == 0:
-                print(f"passed {epoch} epoch and finish updateE")
 
             # ========= Update D ==================
 
@@ -515,8 +505,6 @@ def train_soft_intro_vae(z_dim=150, lr_e=2e-4, lr_d=2e-4, batch_size=16, num_wor
             optimizer_d.zero_grad()
             lossD.backward()
             optimizer_d.step()
-            if counter == 0:
-                print(f"passed {epoch} epoch and finish updateD")
 
             if torch.isnan(lossD) or torch.isnan(lossE):
                 raise SystemError
@@ -530,15 +518,6 @@ def train_soft_intro_vae(z_dim=150, lr_e=2e-4, lr_d=2e-4, batch_size=16, num_wor
 
             counter += 1
 
-            #if cur_iter % test_iter == 0:
-        # info = "\nEpoch[{}]({}/{}): time: {:4.4f}: ".format(epoch, iteration, len(train_data_loader), time.time() - start_time)
-        # info += 'Rec: {:.4f}, '.format(loss_rec.data.cpu())
-        # info += 'Kl_E: {:.4f}, expELBO_R: {:.4e}, expELBO_F: {:.4e}, '.format(lossE_real_kl.data.cpu(),
-        #                                                                 exp_elbo_rec.data.cpu(),
-        #                                                                 exp_elbo_fake.cpu())
-        # info += 'Kl_F: {:.4f}, KL_R: {:.4f}'.format(rec_kl.data.cpu(), fake_kl.data.cpu())
-        # info += ' DIFF_Kl_F: {:.4f}'.format(-lossE_real_kl.data.cpu() + fake_kl.data.cpu())
-        # print(info)
 
         model.eval()
         with torch.no_grad():
@@ -592,12 +571,17 @@ def train_soft_intro_vae(z_dim=150, lr_e=2e-4, lr_d=2e-4, batch_size=16, num_wor
 
                 val_lossD += lossD.item()
 
+        train_lossE /= len(train_loader)
+        train_lossD /= len(train_loader)
+        train_lossE_list.append(train_lossE)
+        train_lossD_list.append(train_lossD)
         val_lossE /= len(val_loader)
         val_lossD /= len(val_loader)
         val_lossE_list.append(val_lossE)
         val_lossD_list.append(val_lossD)
         now_time = time.time()
-        print("epoch:" + str(epoch) + "  epoch_time:" + str(now_time - start_time))
+        print(f"Epoch [{epoch+1}/{num_epochs}]  train_lossE:{train_lossE:.3f}  train_lossD:{train_lossD:.3f}  val_lossE:{val_lossE:.3f}  "
+              f"val_lossD:{val_lossD:.3f}, 1epoch:{(now_time - loop_start_time):.1f}秒  total time:{(now_time - start_time):.1f}秒")
 
     #    max_imgs = min(batch.size(0), 16)
         #epoch_fin_time = time.time()
@@ -621,7 +605,8 @@ device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
 print("device:", device)
 model = SoftIntroVAE(12, [[12,1,2],[24,1,2],[32,2,2],[48,2,2]], conditional=False).to(device)
 model = torch.nn.DataParallel(model, device_ids=[1, 2, 3, 4])
-num_epochs = 500
+print("Use DataParallel device_ids=1,2,3,4") # ここ手動...
+num_epochs = 501
 lr = 2e-4
 batch_size = 16
 beta_kl = 1.0
