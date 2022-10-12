@@ -54,14 +54,14 @@ def load_model(model, pretrained, device):
 
 
 def save_checkpoint(model, epoch, iteration, prefix=""):
-    model_out_path = "./saves/" + prefix + "model_epoch_{}_iter_{}.pth".format(epoch, iteration)
+    model_out_path = "./saves/" + prefix + f"model_epoch_{epoch}_iter_{iteration}.pth"
     state = {"epoch": epoch, "model": model.state_dict()}
     if not os.path.exists("./saves/"):
         os.makedirs("./saves/")
 
     torch.save(state, model_out_path)
 
-    print("model checkpoint saved @ {}".format(model_out_path))
+    print(f"model checkpoint saved @ {model_out_path}")
 
 #  ============= first =================
 # #  ==================================================================
@@ -505,6 +505,9 @@ def train_ResNetVAE(
     train_loss_list, val_loss_list = [], []
     start_time = time.time()
     for epoch in range(epochs):
+        if epoch == 300:
+            lr = 0.0001
+
         loop_start_time = time.time()
         net.train()
         train_loss, val_loss = 0.0, 0.0
@@ -531,11 +534,11 @@ def train_ResNetVAE(
                 val_loss += loss.item()
 
         val_loss /= len(val_loader)
-
-        savename = f"ResNetVAE_param_epoch{epoch}.pth"
-    #   torch.save(model.state_dict(), file_path)
-        torch.save(net.state_dict(), path + savename)
-#       torch.save(model.state_dict(), log_path + f"softintroVAE_weight_epoch{str(epoch)}.pth")
+        if epoch % 50 == 0:
+            savename = f"4184ResNetVAE_Para_epoch{epoch}.pth"
+        #   torch.save(model.state_dict(), file_path)
+            torch.save(net.state_dict(), path + savename)
+    #       torch.save(model.state_dict(), log_path + f"softintroVAE_weight_epoch{str(epoch)}.pth")
 
         now_time = time.time()
         print(f"Epoch [{epoch+1}/{epochs}] train_loss:{train_loss:.3f}  val_loss:{val_loss:.3f} "
