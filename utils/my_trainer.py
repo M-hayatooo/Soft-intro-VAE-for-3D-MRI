@@ -4,6 +4,7 @@ import random
 import time
 from asyncore import loop
 
+import models.lossf as lossf
 import models.models as models
 import numpy as np
 import torch
@@ -12,10 +13,10 @@ import torch.nn.functional as F
 import torch.optim as optim
 
 
-def write_csv(epoch, train_loss, train_acc, val_loss, val_acc, path):
+def write_csv(epoch, train_loss, val_loss, path):
     with open(path, "a") as f:
         writer = csv.writer(f)
-        writer.writerow([epoch, train_loss, train_acc, val_loss, val_acc])
+        writer.writerow([epoch, train_loss, val_loss])
 
 
 def calc_kl(logvar, mu, mu_o=0.0, logvar_o=0.0, reduce='sum'):
@@ -483,13 +484,25 @@ def train_soft_intro_vae(
     return train_lossE_list, train_lossD_list, val_lossE_list, val_lossD_list
 
 
+def init_weights_he(m):
+    if type(m) == nn.Conv3d or type(m) == nn.ConvTranspose3d:
+        nn.init.kaiming_normal_(m.weight, nonlinearity="relu")
+
+def write_fig(path, train, val):
+    with open(path, "w") as f:
+        for t,v in zip(train,val):
+            f.write("train=%s\n" % str(t))
+            f.write("val===%s\n" % str(v))
+    return
+
+
 # trainer for ResNet mackysan VAE
 def train_ResNetVAE(
     net,
     train_loader,
     val_loader,
     epochs=1,
-    lr=0.001,
+    lr=0.0001,
     device=torch.device("cpu"),
     path="./output_ResNetVAE/",
 ):
@@ -501,41 +514,44 @@ def train_ResNetVAE(
     optimizer = optim.Adam(net.parameters(), lr)
     print(optimizer)
     #net = torch.nn.DataParallel(net, device_ids=[0, 1, 2, 3])
+
     net.to(device)
+    net.apply(init_weights_he)
     train_loss_list, val_loss_list = [], []
     start_time = time.time()
     for epoch in range(epochs):
-        if epoch == 300:
-            lr = 0.0001
-
         loop_start_time = time.time()
+        train_run_mse = 0.0
+        train_run_kl = 0.0
         net.train()
         train_loss, val_loss = 0.0, 0.0
         for inputs, labels in train_loader:
             inputs = inputs.to(device)
             optimizer.zero_grad()
-
             x_re, mu, logvar = net.forward(inputs)
-            loss = net.loss(x_re, inputs, mu, logvar)
-
+            loss, mse, kl = lossf.normal_loss(x_re, mu, logvar, inputs)
             loss.backward()
             optimizer.step()
-
             train_loss += loss.item()
+            train_run_mse += mse.item()
+            train_run_kl += kl.item()
 
         train_loss /= len(train_loader)
+        train_run_mse /= len(train_loader)
+        train_run_kl /= len(train_loader)
 
         net.eval()
         with torch.no_grad():
             for inputs, labels in val_loader:
                 inputs = inputs.to(device)
                 x_re, mu, logvar = net.forward(inputs)
-                loss = net.loss(x_re, inputs, mu, logvar)
+                loss, mse, kl = lossf.normal_loss(x_re, mu, logvar, inputs)
+
                 val_loss += loss.item()
 
         val_loss /= len(val_loader)
-        if epoch % 50 == 0:
-            savename = f"4184ResNetVAE_Para_epoch{epoch}.pth"
+        if epoch % 10 == 0:
+            savename = f"ResNetVAE_4184epoch{epoch}.pth"
         #   torch.save(model.state_dict(), file_path)
             torch.save(net.state_dict(), path + savename)
     #       torch.save(model.state_dict(), log_path + f"softintroVAE_weight_epoch{str(epoch)}.pth")
@@ -546,6 +562,11 @@ def train_ResNetVAE(
 
         train_loss_list.append(train_loss)
         val_loss_list.append(val_loss)
+
+        write_fig(path + "/loss.txt",train_loss_list,val_loss_list)
+        # write_fig(path + "/mse.txt",train_losses_mse,val_losses_mse)
+        # write_fig(path + "/kl.txt",train_losses_kl,val_losses_kl)
+
 
     print("Finished ResNetVAE Traininig")
     return train_loss_list, val_loss_list
@@ -605,17 +626,9 @@ def train_ResNetCAE(
         val_loss /= len(val_loader)
 
         now_time = time.time()
-        print(
-            "Epoch [%3d/%3d], loss: %.3f, val_loss: %.3f, %d秒/epoch, total time %d秒"
-            % (
-                epoch + 1,
-                epochs,
-                train_loss,
-                val_loss,
-                now_time - loop_start_time,
-                now_time - start_time,
-            )
-        )
+        print(f"Epoch [{epoch+1}/{epochs}] train_loss:{train_loss:.3f}  val_loss:{val_loss:.3f} "
+              f" 1epoch:{(now_time - loop_start_time):.1f}秒  total time:{(now_time - start_time):.1f}秒")
+
         train_loss_list.append(train_loss)
         val_loss_list.append(val_loss)
         #write_csv(epoch, train_loss, val_loss, path)
@@ -652,6 +665,7 @@ def train(
     train_loss_list, train_acc_list, val_loss_list, val_acc_list = [], [], [], []
     start_time = time.time()
     for epoch in range(epochs):
+        loop_start_time = time.time()
         net.train()
         train_loss, train_acc, val_loss, val_acc = 0.0, 0.0, 0.0, 0.0
         for inputs, labels in train_loader:
@@ -695,19 +709,11 @@ def train(
 
         val_loss /= len(val_loader)
         val_acc /= len(val_loader.dataset)
-        elapsed_time = time.time()
-        print(
-            "Epoch [%3d/%3d], loss: %.3f acc: %.3f, val_loss: %.3f val_acc: %.3f total time %d秒"
-            % (
-                epoch + 1,
-                epochs,
-                train_loss,
-                train_acc * 100,
-                val_loss,
-                val_acc * 100,
-                elapsed_time - start_time,
-            )
-        )
+
+        now_time = time.time()
+        print(f"Epoch [{epoch+1}/{epochs}] train_loss:{train_loss:.3f}  acc:{train_acc * 100:.3f}  val_loss:{val_loss:.3f} "
+              f"val acc:{val_acc * 100:.3f}  1epoch:{(now_time - loop_start_time):.1f}秒  total time:{(now_time - start_time):.1f}秒")
+
         train_loss_list.append(train_loss)
         train_acc_list.append(train_acc)
         val_loss_list.append(val_loss)
@@ -743,6 +749,7 @@ def train_cae(
     train_loss_list, val_loss_list = [], []
     start_time = time.time()
     for epoch in range(epochs):
+        loop_start_time = time.time()
         net.train()
         train_loss, val_loss = 0.0, 0.0
         for inputs, labels in train_loader:
@@ -771,17 +778,11 @@ def train_cae(
 
         val_loss /= len(val_loader)
 
-        elapsed_time = time.time()
-        print(
-            "Epoch [%3d/%3d], loss: %.3f, val_loss: %.3f, total time %d秒"
-            % (
-                epoch + 1,
-                epochs,
-                train_loss,
-                val_loss,
-                elapsed_time - start_time,
-            )
-        )
+        now_time = time.time()
+        print(f"Epoch [{epoch+1}/{epochs}] train_loss:{train_loss:.3f}  val_loss:{val_loss:.3f} "
+              f" 1epoch:{(now_time - loop_start_time):.1f}秒  total time:{(now_time - start_time):.1f}秒")
+
+
         train_loss_list.append(train_loss)
         val_loss_list.append(val_loss)
         #write_csv(epoch, train_loss, val_loss, path)
