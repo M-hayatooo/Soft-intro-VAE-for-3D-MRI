@@ -724,8 +724,6 @@ def train(
     return train_loss_list, train_acc_list, val_loss_list, val_acc_list
 
 # ----------------------------------------------------------------------------------------------------------- #
-
-
 # ----------------------------------------------------------------------------------------------------------- #
 
 # trainer for VAE
@@ -750,6 +748,7 @@ def train_vae(
     train_loss_list, val_loss_list = [], []
     start_time = time.time()
     for epoch in range(epochs):
+        loop_start_time = time.time()
         net.train()
         train_loss, val_loss = 0.0, 0.0
         for inputs, labels in train_loader:
@@ -777,17 +776,10 @@ def train_vae(
 
         val_loss /= len(val_loader)
 
-        elapsed_time = time.time()
-        print(
-            "Epoch [%3d/%3d], loss: %.3f, val_loss: %.3f, total time %d秒"
-            % (
-                epoch + 1,
-                epochs,
-                train_loss,
-                val_loss,
-                elapsed_time - start_time,
-            )
-        )
+        now_time = time.time()
+        print(f"Epoch [{epoch+1}/{epochs}] train_loss:{train_loss:.3f}  val_loss:{val_loss:.3f} "
+              f" 1epoch:{(now_time - loop_start_time):.1f}秒  total time:{(now_time - start_time):.1f}秒")
+
         train_loss_list.append(train_loss)
         val_loss_list.append(val_loss)
         #write_csv(epoch, train_loss, val_loss, path)
