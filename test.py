@@ -43,11 +43,10 @@ def fix_seed(seed):
 
 fix_seed(0)
 
-
-CLASS_MAP = {"CN": 0, "AD": 1}
+CLASS_MAP = {"CN": 0,"AD": 1,"EMCI": 2,"LMCI": 3,"MCI": 4,"SMC": 5}
 SEED_VALUE = 0
 
-data = load_data(kinds=["ADNI2","ADNI2-2"], classes=["CN", "AD"], unique=False, blacklist=True)
+data = load_data(kinds=["ADNI2", "ADNI2-2"], classes=["CN", "AD", "EMCI", "LMCI", "SMC", "MCI"], unique=False, blacklist=True)
 
 pids = []
 voxels = np.zeros((len(data), 80, 96, 80))
@@ -57,33 +56,6 @@ for i in tqdm(range(len(data))):
     voxels[i] = data[i]["voxel"]
     labels[i] = CLASS_MAP[data[i]["label"]]
 pids = np.array(pids)
-
-
-class BrainDataset(Dataset):
-    def __init__(self, voxels, labels, transform=None):
-        self.voxels = voxels
-        self.labels = labels
-        self.transform = transform
-    def __len__(self):
-        return len(self.voxels)
-    def __getitem__(self, index):
-        voxel = self.voxels[index]
-        label = self.labels[index]
-        if self.transform:
-            voxel = self.transform(voxel, self.phase)
-        voxel = self._preprocess(voxel)
-        return voxel, label
-    def _preprocess(self, voxel):
-        cut_range = 4
-        voxel = np.clip(voxel, 0, cut_range * np.std(voxel))
-        voxel = normalize(voxel, np.min(voxel), np.max(voxel))
-        voxel = voxel[np.newaxis, ]
-        return voxel.astype('f')
-    def __call__(self, index):
-        return self.__getitem__(index)
-
-def normalize(voxel: np.ndarray, floor: int, ceil: int) -> np.ndarray:
-    return (voxel - floor) / (ceil - floor)
 
 
 gss = GroupShuffleSplit(test_size=0.2, random_state=42)
@@ -100,18 +72,20 @@ train_dataloader = DataLoader(train_dataset, batch_size=16, num_workers=os.cpu_c
 val_dataloader = DataLoader(val_dataset, batch_size=16, num_workers=os.cpu_count(), pin_memory=True, shuffle=False)
 
 
-def calc_kl(logvar, mu, mu_o=0.0, logvar_o=0.0, reduce='sum'):
-    if not isinstance(mu_o, torch.Tensor):
-        mu_o = torch.tensor(mu_o).to(mu.device)
-    if not isinstance(logvar_o, torch.Tensor):
-        logvar_o = torch.tensor(logvar_o).to(mu.device)
-    kl = -0.5 * (1 + logvar - logvar_o - logvar.exp() / torch.exp(logvar_o) - (mu - mu_o).pow(2) / torch.exp(
-        logvar_o)).sum(1)
-    if reduce == 'sum':
-        kl = torch.sum(kl)
-    elif reduce == 'mean':
-        kl = torch.mean(kl)
-    return kl
+
+def calc_kl(logvar, mu):
+    bsize = mu.size(0)
+    mu = mu.view(bsize, -1)
+    logvar = logvar.view(bsize, -1)
+    return torch.mean(-0.5 * torch.sum(1 + logvar - mu ** 2 - logvar.exp(), dim=1), dim=0)
+
+
+def calc_reconstruction_loss(x, recon_x, loss_type='mse', reduction='mean'):
+    bsize = x.size(0)
+    x = x.view(bsize, -1)
+    out = recon_x.view(bsize, -1)
+    mse = torch.mean(torch.sum(F.mse_loss(x, out, reduction='none'), dim=1), dim=0)
+    return mse
 
 
 def reparameterize(mu, logvar):
@@ -119,15 +93,6 @@ def reparameterize(mu, logvar):
     std = torch.exp(0.5 * logvar)
     eps = torch.randn_like(std).to(device)
     return mu + eps * std
-
-
-def calc_reconstruction_loss(x, recon_x, loss_type='mse', reduction='mean'):
-    x = x.view(x.size(0), -1)
-    recon_x = recon_x.view(recon_x.size(0), -1)
-    recon_error = F.mse_loss(recon_x, x, reduction='none')
-    recon_error = recon_error.sum(1)
-    recon_error = recon_error.mean()
-    return recon_error
 
 
 def load_model(model, pretrained, device):
@@ -354,12 +319,6 @@ class ResNetVAE(BaseVAE):
         x_re = self.decoder(z)
         return x_re, mu, logvar
 
-    def loss(self, x_re, x, mu, logvar):
-        re_err = torch.sqrt(torch.mean((x_re - x)**2)) # ==  self.Rmse(x_re, x)
-        kld = -0.5 * torch.sum(1 + logvar - mu**2 - logvar.exp())
-        return re_err + kld
-
-
 
 class SoftIntroVAE(nn.Module):
     def __init__(self, in_ch, block_setting, zdim=150, conditional=False):
@@ -383,11 +342,6 @@ class SoftIntroVAE(nn.Module):
         x_re = self.decoder(z)
         return mu, logvar, z, x_re
 #     ↑ここの forward では  RETURN {{ mu, logvar, z, y }}を返したい (soft-intro-vae-tutorial-codeでは)
-
-    def loss(self, x_re, x, mu, logvar):
-        re_err = torch.sqrt(torch.mean((x_re - x)**2)) # ==  self.Rmse(x_re, x)
-        kld = -0.5 * torch.sum(1 + logvar - mu**2 - logvar.exp())
-        return re_err + kld
 
     def sample(self, z, y_cond=None):
         z = z.view(32, 1, 5, 6, 5)# batchsize, channel, 5×6×5 (150)
@@ -422,6 +376,15 @@ def train_soft_intro_vae(z_dim=150, lr_e=2e-4, lr_d=2e-4, batch_size=16, num_wor
 
 
     model = SoftIntroVAE(12, [[12,1,2],[24,1,2],[32,2,2],[48,2,2]], conditional=False)
+    test_rand = torch.randn(1,1,80,96,80)
+    a_mu, b_logvar, c_z, d_x_re = model(test_rand)
+#   { mu,    logvar,    z   ,    y }}
+    print(a_mu)
+    print()
+    print(b_logvar)
+    print(c_z)
+    print(d_x_re)
+
     #model = torch.nn.DataParallel(model, device_ids=[0, 1, 2, 3])
     model.to(device)
     # もしpretrainedが存在しているのならば model param load
@@ -554,13 +517,13 @@ def train_soft_intro_vae(z_dim=150, lr_e=2e-4, lr_d=2e-4, batch_size=16, num_wor
         train_lossD_list.append(train_lossD)
 
         if epoch % 50 == 0:
-            savename = f"softintrovae_weight_epoch{epoch}.pth"
+            savename = f"SoftIntroVAE_weight_epoch{epoch}.pth"
         #   torch.save(model.state_dict(), file_path)
             torch.save(model.state_dict(), log_path + savename)
 #           torch.save(model.state_dict(), log_path + f"softintroVAE_weight_epoch{str(epoch)}.pth")
         now_time = time.time()
-        print(f"Epoch [{epoch+1}/{num_epochs}] train_lossE:{train_lossE:.4f}, train_lossD:{train_lossD:.4f},"
-              f" 1epoch{now_time - loop_start_time:.1f}秒, total time:{(now_time - start_time)/60:.1f}分")
+        print(f"Epoch [{epoch+1}/{num_epochs}] train_lossE:{train_lossE:.4f}  train_lossD:{train_lossD:.4f} "
+              f" 1epoch{now_time - loop_start_time:.1f}秒  total time:{(now_time - start_time)/60:.1f}分")
 
 
     e_scheduler.step()
@@ -572,18 +535,21 @@ def train_soft_intro_vae(z_dim=150, lr_e=2e-4, lr_d=2e-4, batch_size=16, num_wor
         kls_rec.append(np.mean(batch_kls_rec))
         rec_errs.append(np.mean(batch_rec_errs))
 
+    print("Finish SoftIntroVAE training!")
     return model
 
 
 # hyperparameters
-device = torch.device("cuda:6" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:7" if torch.cuda.is_available() else "cpu")
 print("device:", device)
-num_epochs = 501 # これで501回学習するが、パラメータは500.pthまで保存される
+num_epochs = 1 # これで501回学習するが、パラメータは500.pthまで保存される
 lr = 2e-4
 batch_size = 16
 beta_kl = 1.0
 beta_rec = 1.0
 beta_neg = 256
+
+
 
 model = train_soft_intro_vae(z_dim=150, lr_e=2e-4, lr_d=2e-4, batch_size=batch_size, num_workers=os.cpu_count(), start_epoch=0,
                              num_epochs=num_epochs, num_vae=0, save_interval=5000, recon_loss_type="mse",
