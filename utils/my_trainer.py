@@ -26,18 +26,6 @@ def calc_kl(logvar, mu):
     return torch.mean(-0.5 * torch.sum(1 + logvar - mu ** 2 - logvar.exp(), dim=1), dim=0)
 
 
-    # if not isinstance(mu_o, torch.Tensor):
-    #     mu_o = torch.tensor(mu_o).to(mu.device)
-    # if not isinstance(logvar_o, torch.Tensor):
-    #     logvar_o = torch.tensor(logvar_o).to(mu.device)
-    # kl = -0.5 * (1 + logvar - logvar_o - logvar.exp() / torch.exp(logvar_o) - (mu - mu_o).pow(2) / torch.exp(logvar_o)).sum(1)
-    # if reduce == 'sum':
-    #     kl = torch.sum(kl)
-    # elif reduce == 'mean':
-    #     kl = torch.mean(kl)
-    # return kl
-
-
 def reparameterize(mu, logvar):
     device = mu.device
     std = torch.exp(0.5 * logvar)
@@ -51,33 +39,16 @@ def calc_reconstruction_loss(x, recon_x, loss_type='mse', reduction='mean'):
     out = recon_x.view(bsize, -1)
     mse = torch.mean(torch.sum(F.mse_loss(x, out, reduction='none'), dim=1), dim=0)
     return mse
+
+
+'''
     # recon_x = recon_x.view(recon_x.size(0), -1)
 
     # recon_error = F.mse_loss(recon_x, x, reduction='none')
     # recon_error = recon_error.sum(1)
     # recon_error = recon_error.mean()
 #    return recon_error
-
-
-
-# def mse_loss(out, x):
-#     bsize = x.size(0)
-#     x = x.view(bsize, -1)
-#     out = out.view(bsize, -1)
-#     mse = torch.mean(torch.sum(F.mse_loss(x, out, reduction='none'), dim=1), dim=0)
-#     return mse
-
-# def kld_loss(mu, logvar):
-#     bsize = mu.size(0)
-#     mu = mu.view(bsize, -1)
-#     logvar = logvar.view(bsize, -1)
-#     return torch.mean(-0.5 * torch.sum(1 + logvar - mu ** 2 - logvar.exp(), dim=1), dim=0)
-
-# def normal_loss(x_hat, mu, logvar, x, msew=1, kldw=1):
-#     mse = mse_loss(x_hat, x) * msew
-#     kld = kld_loss(mu, logvar) * kldw
-#     loss = mse + kld
-#     return loss, mse, kld
+'''
 
 
 def load_model(model, pretrained, device):
@@ -96,9 +67,9 @@ def save_checkpoint(model, epoch, iteration, prefix=""):
     print(f"model checkpoint saved @ {model_out_path}")
 
 
-#  ============= second =================
+#  =============  Soft Intro VAE  function  =================
 def train_soft_intro_vae(
-    model,  #  net
+    model,  # == net
     train_loader,
     val_loader,
     epochs,
