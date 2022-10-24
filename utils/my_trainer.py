@@ -52,8 +52,8 @@ def calc_reconstruction_loss(x, recon_x, loss_type='mse', reduction='mean'):
 
 
 def load_model(model, pretrained, device):
-    weights = torch.load(pretrained, map_location=device)
-    model.load_state_dict(weights['model'], strict=False)
+    # weights = torch.load(pretrained, map_location=device)
+    model.load_state_dict(torch.load(pretrained, map_location=device), strict=False)
 
 
 def save_checkpoint(model, epoch, iteration, prefix=""):
@@ -69,13 +69,14 @@ def save_checkpoint(model, epoch, iteration, prefix=""):
 
 #  =============  Soft Intro VAE  function  =================
 def train_soft_intro_vae(
-    model,  # == net
+    model,
     train_loader,
     val_loader,
     epochs,
     lr=0.001,
     device=torch.device("cpu"),
     path="./output_SoftIntroVAE/",
+    pretrained_path=None
 ):
     seed = 77
 
@@ -96,8 +97,8 @@ def train_soft_intro_vae(
     #model = torch.nn.DataParallel(model, device_ids=[0, 1, 2, 3])
     model.to(device)
     # もしpretrainedが存在しているのならば model param load
-    # if pretrained is not None:
-    #     load_model(model, pretrained, device)
+    if pretrained_path is not None:
+        load_model(model, pretrained_path, device)
     # print(model)
     # lr_e = lr
     # lr_d = lr
@@ -106,7 +107,8 @@ def train_soft_intro_vae(
     e_scheduler = optim.lr_scheduler.MultiStepLR(optimizer_e, milestones=(350,), gamma=0.1)
     d_scheduler = optim.lr_scheduler.MultiStepLR(optimizer_d, milestones=(350,), gamma=0.1)
 
-#   パラメータ定義
+# ===============================================================================================
+#   パラメータ定義  いじるならここかなぁ
     recon_loss_type = "mse"
     beta_rec = 1.0
     beta_neg = 1.0
@@ -123,8 +125,9 @@ def train_soft_intro_vae(
     train_lossE_list, train_lossD_list, val_lossE_list, val_lossD_list = [], [], [], []
     train_lossE, train_lossD, val_lossE, val_lossD = 0.0, 0.0, 0.0, 0.0
 
-    start_epoch, num_epochs = 0, 501
-    for epoch in range(start_epoch, num_epochs):
+    start_epoch = 0
+    print(f"training epoch:{epochs}")
+    for epoch in range(start_epoch, epochs):
         loop_start_time = time.time()
         diff_kls = []
         # save models
@@ -145,8 +148,7 @@ def train_soft_intro_vae(
             noise_batch = torch.randn(size=(b_size, 1, 5, 6, 5)).to(device)
             real_batch = batch.to(device)
 
-            # =========== Update E ================
-        #   fake = model.sample(noise_batch)
+            # ============= Update E ================
             fake = model.decode(noise_batch)
 
             real_mu, real_logvar = model.encode(real_batch)
@@ -167,15 +169,14 @@ def train_soft_intro_vae(
 
             exp_elbo_fake = (-2 * scale * (beta_rec * loss_fake_rec + beta_neg * fake_kl_e)).exp().mean()
             exp_elbo_rec = (-2 * scale * (beta_rec * loss_rec_rec + beta_neg * rec_kl_e)).exp().mean()
-            # total loss
+            # ===== encoder total loss =====
             lossE = scale * (beta_rec * loss_rec + beta_kl * lossE_real_kl) + 0.25 * (exp_elbo_fake + exp_elbo_rec)
-            # backprop
+            # backprop part of encoder
             optimizer_e.zero_grad()
             lossE.backward()
             optimizer_e.step()
-
             train_lossE += lossE.item()
-       #     print("finish updateE")
+
             # ================ Update D ==================
             for param in model.encoder.parameters():
                 param.requires_grad = False
@@ -219,9 +220,10 @@ def train_soft_intro_vae(
             batch_kls_fake.append(fake_kl.cpu().item())
             batch_kls_rec.append(rec_kl.data.cpu().item())
             batch_rec_errs.append(loss_rec.data.cpu().item())
-
-        train_lossE /= len(train_loader.dataset)
-        train_lossD /= len(train_loader.dataset)
+        # print(f"value of train_loader.dataset:{len(train_loader.dataset)}")
+        # print(f"value of train_loader:{len(train_loader)}")
+        train_lossE /= len(train_loader)  # train_lossE /= len(train_loader.dataset)
+        train_lossD /= len(train_loader)
         train_lossE_list.append(train_lossE)
         train_lossD_list.append(train_lossD)
 
@@ -233,7 +235,7 @@ def train_soft_intro_vae(
         # info += ' DIFF_Kl_F: {:.4f}'.format(-lossE_real_kl.data.cpu() + fake_kl.data.cpu())
         # print(info)
 
-        _, _, _, rec_det = model(real_batch)
+        #_, _, _, rec_det = model(real_batch)
 
         model.eval()
         with torch.no_grad():
@@ -291,8 +293,8 @@ def train_soft_intro_vae(
                 val_lossD += lossD.item()
 
 
-            val_lossE /= len(val_loader.dataset)
-            val_lossD /= len(val_loader.dataset)
+            val_lossE /= len(val_loader)
+            val_lossD /= len(val_loader)
             val_lossE_list.append(val_lossE)
             val_lossD_list.append(val_lossD)
 
@@ -306,8 +308,8 @@ def train_soft_intro_vae(
     #     kls_fake.append(np.mean(batch_kls_fake))
     #     kls_rec.append(np.mean(batch_kls_rec))
     #     rec_errs.append(np.mean(batch_rec_errs))
-        if epoch % 50 == 0:
-            savename = f"SoftIntroVAE_4184epoch_{epoch}.pth"
+        if epoch % 10 == 0:
+            savename = f"VAEtoSoftIntroVAE_4184epoch_{epoch}.pth"
         #   torch.save(model.state_dict(), file_path)
             torch.save(model.state_dict(), path + savename)
     #       torch.save(model.state_dict(), log_path + f"softintroVAE_weight_epoch{str(epoch)}.pth")
@@ -345,6 +347,13 @@ def write_fig(path, train, val, trainD, valD):
             f.write("valD===%s\n" % str(vd))
     return
 
+
+def write_figres(path, train, val):
+    with open(path, "w") as f:
+        for t,v in zip(train, val):
+            f.write("train=%s\n" % str(t))
+            f.write("val===%s\n" % str(v))
+    return
 
 # trainer for ResNet mackysan VAE
 def train_ResNetVAE(
@@ -386,7 +395,6 @@ def train_ResNetVAE(
             train_run_mse += mse.item()
             train_run_kl += kl.item()
 #____________________________________________________#
-
         train_run_loss /= len(train_loader)
         train_run_mse /= len(train_loader)
         train_run_kl /= len(train_loader)
@@ -422,7 +430,7 @@ def train_ResNetVAE(
         print(f"Epoch [{epoch+1}/{epochs}] train_loss:{train_run_loss:.3f}  val_loss:{val_run_loss:.3f} "
               f" 1epoch:{(now_time - loop_start_time):.1f}秒  total time:{(now_time - start_time):.1f}秒")
 
-        write_fig(path + "/loss.txt",train_losses,val_losses)
+        write_figres(path + "/loss.txt", train_losses, val_losses)
         # write_fig(path + "/mse.txt",train_losses_mse,val_losses_mse)
         # write_fig(path + "/kl.txt",train_losses_kl,val_losses_kl)
 
