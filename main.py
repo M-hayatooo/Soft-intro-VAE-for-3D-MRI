@@ -1,4 +1,5 @@
 import argparse
+import csv
 import os
 import random
 import time
@@ -28,18 +29,21 @@ import utils.train_result as train_result
 from datasets.dataset import load_data
 from utils.data_load import BrainDataset
 
-CLASS_MAP = {"CN": 0, "AD": 1}
+#"CN", "AD", "EMCI", "LMCI", "SMC", "MCI"
+CLASS_MAP = {"CN": 0, "AD": 1, "EMCI":2, "LMCI":3, "SMC":4, "MCI":5}
 SEED_VALUE = 82
 
 def parser():
     parser = argparse.ArgumentParser(description="example")
     parser.add_argument("--model", type=str, default="SoftIntroVAE")
     parser.add_argument("--batch_size", type=int, default=16)
-    parser.add_argument("--epoch", type=int, default=500)
+    parser.add_argument("--epoch", type=int, default=400)
+    parser.add_argument("--Softepoch", type=int, default=500)
     parser.add_argument("--lr", type=float, default=0.001)
     parser.add_argument("--log", type=str, default="output")
     parser.add_argument("--n_train", type=float, default=0.8)
     parser.add_argument("--train_or_loadnet", type=str, default="train")# train or loadnet
+
     args = parser.parse_args()
     return args
 
@@ -51,6 +55,8 @@ def fix_seed(seed):
     torch.backends.cudnn.benchmark = True #この行をFalseにすると再現性はとれるが、速度が落ちる
     torch.backends.cudnn.deterministic = True
     return
+
+
 fix_seed(0)
 
 
@@ -61,7 +67,7 @@ def seed_worker(worker_id):
 
 
 def load_dataloader(n_train_rate, batch_size):
-    data = load_data(kinds=["ADNI2", "ADNI2-2"], classes=["CN", "AD"], unique=False, blacklist=True)
+    data = load_data(kinds=["ADNI2", "ADNI2-2"], classes=["CN", "AD", "EMCI", "LMCI", "SMC", "MCI"], unique=False, blacklist=False)
 
     pids = []
     voxels = np.zeros((len(data), 80, 96, 80))
@@ -84,7 +90,8 @@ def load_dataloader(n_train_rate, batch_size):
 
     g = torch.Generator()
     g.manual_seed(0)
-    batch_size = 16
+#    batch_size = 32
+    print(f"batch size:{batch_size}")
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, num_workers=os.cpu_count(),
                                   pin_memory=True, shuffle=True, worker_init_fn=seed_worker, generator=g)
     val_dataloader = DataLoader(val_dataset, batch_size=batch_size, num_workers=os.cpu_count(),
@@ -97,7 +104,18 @@ def load_dataloader(n_train_rate, batch_size):
     return train_dataloader, val_dataloader
 
 
+def write_csv(epoch, train_loss, val_loss, path):
+    with open(path, "a") as f:
+        writer = csv.writer(f)
+        writer.writerow([epoch, train_loss, val_loss])
+
+
+
 def main():
+    #   os.environ["CUDA_VISIBLE_DEVICES"] = "6"   #  os.environ["CUDA_VISIBLE_DEVICES"]="4,5,6,7"
+    device = torch.device("cuda:5" if torch.cuda.is_available() and True else "cpu")
+    print("device:", device)
+
     # randam.seed(SEED_VALUE)
     np.random.seed(SEED_VALUE)
     torch.manual_seed(SEED_VALUE)
@@ -116,6 +134,11 @@ def main():
         net = models.SoftIntroVAE(12, [[12,1,2],[24,1,2],[32,2,2],[48,2,2]])
         log_path = "./logs/" + args.log + "_SoftIntroVAE/"
         print("net: SoftIntroVAE") # ------------------------------------- #
+    elif args.model == "VAEtoSoftVAE":
+        resnet = models.ResNetVAE(12, [[12,1,2],[24,1,2],[32,2,2],[48,2,2]])
+        net = models.SoftIntroVAE(12, [[12,1,2],[24,1,2],[32,2,2],[48,2,2]])
+        log_path = "./logs/" + args.log + "_VAEtoSoftVAE/"
+        print("net: VAE to SoftVAE") # ------------------------------------- #
 
 
     os.makedirs(log_path, exist_ok=True)
@@ -123,11 +146,6 @@ def main():
     # save args
     with open(log_path + "my_args.txt", "w") as f:
         f.write("{}".format(args))
-
-
-    os.environ["CUDA_VISIBLE_DEVICES"] = "5"   #  os.environ["CUDA_VISIBLE_DEVICES"]="4,5,6,7"
-    device = torch.device("cuda" if torch.cuda.is_available() and True else "cpu")
-    print("device:", device)
 
 
 #   ここで データをロードする .
@@ -143,20 +161,31 @@ def main():
         if args.model == "ResNetCAE":
             train_loss, val_loss = trainer.train_ResNetCAE(net, train_loader, val_loader, args.epoch, args.lr, device, log_path)
             torch.save(net.state_dict(), log_path + "resnetcae_weight.pth")
-            print("saved net weight!")
+            print("saved ResNetCAE net weight!")
             train_result.result_ae(train_loss, val_loss, log_path)
 
         elif args.model == "ResNetVAE":
             train_loss, val_loss = trainer.train_ResNetVAE(net, train_loader, val_loader, args.epoch, args.lr, device, log_path)
             torch.save(net.state_dict(), log_path + "resnetvae_weight.pth")
-            print("saved net weight!")
+            print("saved ResNetVAE net weight! ")
             train_result.result_ae(train_loss, val_loss, log_path)
+            #write_csv(args.epoch, train_loss, val_loss, log_path)
             #ここの result_ae は result_AutoEncoder
         elif args.model == "SoftIntroVAE":
             train_lossE, train_lossD, val_lossE, val_lossD = trainer.train_soft_intro_vae(net, train_loader, val_loader, args.epoch, args.lr, device, log_path)
             torch.save(net.state_dict(), log_path + "soft_intro_vae_weight.pth")
-            print("saved net weight!")
+            print("saved S-IntroVAE net weight!")
             train_result.result_ae(train_lossE, train_lossD, val_lossE, val_lossD, log_path)
+
+        elif args.model == "VAEtoSoftVAE":
+            train_loss, val_loss = trainer.train_ResNetVAE(resnet, train_loader, val_loader, args.epoch, args.lr, device, log_path)
+            torch.save(resnet.state_dict(), log_path + "resnetvae_weight.pth")
+            pretrained_path = log_path + "resnetvae_weight.pth"
+            train_lossE, train_lossD, val_lossE, val_lossD = trainer.train_soft_intro_vae(net, train_loader, val_loader, args.Softepoch, args.lr, device, log_path, pretrained_path)
+            torch.save(net.state_dict(), log_path + "soft_intro_vae_weight.pth")
+            print("saved S-IntroVAE net weight!")
+            train_result.result_ae(train_lossE, val_lossE, log_path)
+#            train_result.result_ae(train_lossE, train_lossD, val_lossE, val_lossD, log_path)
 
 
 if __name__ == "__main__":
