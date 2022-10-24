@@ -2,6 +2,7 @@ from typing import List
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 
 class BuildingBlock(nn.Module):
@@ -207,10 +208,6 @@ class ResNetVAE(BaseVAE):
         x_re = self.decoder(z)
         return x_re, mu, logvar
 
-    def loss(self, x_re, x, mu, logvar):
-        re_err = torch.sqrt(torch.mean((x_re - x)**2)) # ==  self.Rmse(x_re, x)
-        kld = -0.5 * torch.sum(1 + logvar - mu**2 - logvar.exp())
-        return re_err + kld
 
 #    def Rmse(x_re, x):
 #        return torch.sqrt(torch.mean((x_re - x)**2))
@@ -238,10 +235,10 @@ class SoftIntroVAE(nn.Module):
         x_re = self.decoder(z)
         return mu, logvar, z, x_re
 
-    def loss(self, x_re, x, mu, logvar):
-        re_err = torch.sqrt(torch.mean((x_re - x)**2)) # ==  self.Rmse(x_re, x)
-        kld = -0.5 * torch.sum(1 + logvar - mu**2 - logvar.exp())
-        return re_err + kld
+    # def loss(self, x_re, x, mu, logvar):
+    #     re_err = torch.sqrt(torch.mean((x_re - x)**2)) # ==  self.Rmse(x_re, x)
+    #     kld = -0.5 * torch.sum(1 + logvar - mu**2 - logvar.exp())
+    #     return re_err + kld
 
     def sample(self, z, y_cond=None):
         # x.view(-1, 2)
