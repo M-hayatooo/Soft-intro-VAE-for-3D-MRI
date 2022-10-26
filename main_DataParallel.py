@@ -75,7 +75,7 @@ g.manual_seed(0)
 
 
 # ===  batch size definetion  ===
-batch_size = 64
+batch_size = 32
 # === === === === === === === ===
 
 train_dataset = BrainDataset(train_voxels, train_labels)
@@ -426,7 +426,6 @@ def train_soft_intro_vae(lr_e=2e-4, lr_d=2e-4, batch_size=batch_size, start_epoc
 
     train_lossE_list, train_lossD_list, val_lossE_list, val_lossD_list = [], [], [], []
     train_lossE, train_lossD, val_lossE, val_lossD = 0.0, 0.0, 0.0, 0.0
-    start_time = 0.0
 
 # ================= following part is for using DataParallel ==================
     for epoch in range(start_epoch, num_epochs):
@@ -576,6 +575,12 @@ def train_soft_intro_vae(lr_e=2e-4, lr_d=2e-4, batch_size=batch_size, start_epoc
         val_lossD /= len(val_loader)
         val_lossE_list.append(val_lossE)
         val_lossD_list.append(val_lossD)
+
+        savename = f"Parallel/S-IntroVAE_weight_epoch{epoch}.pth"
+    #   torch.save(model.state_dict(), file_path)
+        torch.save(model.state_dict(), log_path + savename)
+#           torch.save(model.state_dict(), log_path + f"softintroVAE_weight_epoch{str(epoch)}.pth")
+
         now_time = time.time()
         print(f"Epoch [{epoch+1}/{num_epochs}]  train_lossE:{train_lossE:.3f}  train_lossD:{train_lossD:.3f}  val_lossE:{val_lossE:.3f}  "
               f"val_lossD:{val_lossD:.3f}, 1epoch:{(now_time - loop_start_time):.1f}秒  total time:{(now_time - start_time):.1f}秒")
@@ -595,28 +600,28 @@ def train_soft_intro_vae(lr_e=2e-4, lr_d=2e-4, batch_size=batch_size, start_epoc
 
 
 # hyperparameters
-device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu") #ここでもしcuda番号指定したら、Data Parallel のcuda開始番号と一致させないとダメ
+device = torch.device("cuda:2" if torch.cuda.is_available() else "cpu") #ここでもしcuda番号指定したら、Data Parallel のcuda開始番号と一致させないとダメ
 print("device:", device)
 model = SoftIntroVAE(12, [[12,1,2],[24,1,2],[32,2,2],[48,2,2]], conditional=False).to(device)
 ###
 #  ==============   Data Parallel 指定  ================
 ###
-model = torch.nn.DataParallel(model, device_ids=[1, 2, 3, 4])
+model = torch.nn.DataParallel(model, device_ids=[2, 3])
 ###
-print("Use DataParallel device_ids=1,2,3,4") # ここ手動...
+print("Use DataParallel device_ids=2,3,") # ここ手動...
 num_epochs = 501
 lr = 2e-4
 #batch_size = 16  batch size is definited above
 beta_kl = 1.0
 beta_rec = 1.0
 beta_neg = 256
-
+log_path = "logs/output_SoftIntroVAE/"
 train_lossE, train_lossD, val_lossE, val_lossD = train_soft_intro_vae(lr_e=2e-4, lr_d=2e-4, batch_size=batch_size, start_epoch=0,
                                                                       num_epochs=num_epochs, num_vae=0, save_interval=5000, recon_loss_type="mse",
                                                                       beta_kl=beta_kl, beta_rec=beta_rec, beta_neg=beta_neg, test_iter=1000, seed=-1, pretrained=None,
                                                                       device=device)
 # train soft intro vae の引数の中にpretrainedがあるが、指定すれば呼べる？？？？
-log_path = "_SoftIntroVAE/"
-torch.save(model.state_dict(), log_path + "S-IntroVAE_weight.pth")
+
+torch.save(model.state_dict(), log_path + "Parallel/S-IntroVAE_weight.pth")
 print("saved net weight!")
 train_result.result_ae(train_lossE, train_lossD, val_lossE, val_lossD, log_path)
