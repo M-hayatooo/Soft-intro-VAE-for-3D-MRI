@@ -42,10 +42,6 @@ def fix_seed(seed):
 fix_seed(0)
 
 
-device = torch.device("cuda:1" if torch.cuda.is_available() and True else "cpu")
-print("device:", device)
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
-
 CLASS_MAP = {"CN": 0, "AD": 1}
 SEED_VALUE = 0
 
@@ -290,10 +286,7 @@ class BaseVAE(nn.Module):
 class ResNetCAE(BaseCAE):
     def __init__(self, in_ch, block_setting) -> None:
         super(ResNetCAE, self).__init__()
-        self.encoder = ResNetEncoder(
-            in_ch=in_ch,
-            block_setting=block_setting,
-        )
+        self.encoder = ResNetEncoder(in_ch=in_ch, block_setting=block_setting)
         self.decoder = ResNetDecoder(self.encoder)
 
     def forward(self, x):
@@ -322,10 +315,7 @@ class VAEResNetEncoder(ResNetEncoder):
 class ResNetVAE(BaseVAE):
     def __init__(self, in_ch, block_setting) -> None:
         super(ResNetVAE, self).__init__()
-        self.encoder = VAEResNetEncoder(
-            in_ch=in_ch,
-            block_setting=block_setting,
-        )
+        self.encoder = VAEResNetEncoder(in_ch=in_ch, block_setting=block_setting)
         self.decoder = ResNetDecoder(self.encoder)
 
 
@@ -351,10 +341,7 @@ class SoftIntroVAE(nn.Module):
         super(SoftIntroVAE, self).__init__()
         self.zdim = zdim
         self.conditional = conditional
-        self.encoder = VAEResNetEncoder(
-            in_ch=in_ch,
-            block_setting=block_setting,
-        )
+        self.encoder = VAEResNetEncoder(in_ch=in_ch, block_setting=block_setting)
         self.decoder = ResNetDecoder(self.encoder)
 
     def reparameterize(self, mu, logvar):
@@ -391,10 +378,6 @@ class SoftIntroVAE(nn.Module):
         return y
 
 
-model = SoftIntroVAE(12, [[12,1,2],[24,1,2],[32,2,2],[48,2,2]], conditional=False).to(device)
-model = torch.nn.DataParallel(model, device_ids=[1, 2, 3, 4])
-
-
 def train_soft_intro_vae(z_dim=150, lr_e=2e-4, lr_d=2e-4, batch_size=16, num_workers=os.cpu_count(), start_epoch=0,
                            num_epochs=500, num_vae=0, save_interval=5000, recon_loss_type="mse",
                            beta_kl=1.0, beta_rec=1.0, beta_neg=1.0, test_iter=1000, seed=-1, pretrained=None,
@@ -416,8 +399,8 @@ def train_soft_intro_vae(z_dim=150, lr_e=2e-4, lr_d=2e-4, batch_size=16, num_wor
         load_model(model, pretrained, device)
     #print(model)
 
-    optimizer_e = optim.Adam(model.encoder.parameters(), lr=lr_e)
-    optimizer_d = optim.Adam(model.decoder.parameters(), lr=lr_d)
+    optimizer_e = optim.Adam(model.module.encoder.parameters(), lr=lr_e)
+    optimizer_d = optim.Adam(model.module.decoder.parameters(), lr=lr_d)
 
     e_scheduler = optim.lr_scheduler.MultiStepLR(optimizer_e, milestones=(350,), gamma=0.1)
     d_scheduler = optim.lr_scheduler.MultiStepLR(optimizer_d, milestones=(350,), gamma=0.1)
@@ -457,25 +440,25 @@ def train_soft_intro_vae(z_dim=150, lr_e=2e-4, lr_d=2e-4, batch_size=16, num_wor
         batch_rec_errs = []
         counter = 0
         for batch, labels in train_data_loader:# iterationには 自動で割り振られたindex番号が適用される
-        # --------------train------------
+            # --------------train------------
             b_size = batch.size(0)
 
             noise_batch = torch.randn(size=(b_size, 1, 5, 6, 5)).to(device)
             real_batch = batch.to(device)
 
-            # =========== Update E ================
+            # ====================== Update E =========================
             if counter == 8:
                 print(f"passed {epoch} epoch and start updateE")
-            fake = model.decode(noise_batch)
+            fake = model.module.decode(noise_batch)
 
-            real_mu, real_logvar = model.encode(real_batch)
-            z = model.reparameterize(real_mu, real_logvar)
-            rec = model.decode(z)
+            real_mu, real_logvar = model.module.encode(real_batch)
+            z = model.module.reparameterize(real_mu, real_logvar)
+            rec = model.module.decode(z)
 
             loss_rec = calc_reconstruction_loss(real_batch, rec, loss_type=recon_loss_type, reduction="mean")
             lossE_real_kl = calc_kl(real_logvar, real_mu, reduce="mean")
             # {{ mu,    logvar,    z   ,    y }}を返す
-            rec_mu, rec_logvar, z_rec, rec_rec = model( rec.detach())
+            rec_mu, rec_logvar, z_rec, rec_rec = model(rec.detach())
             fake_mu, fake_logvar, z_fake, rec_fake = model(fake.detach())
 
             fake_kl_e = calc_kl(fake_logvar, fake_mu, reduce="none")
@@ -497,19 +480,19 @@ def train_soft_intro_vae(z_dim=150, lr_e=2e-4, lr_d=2e-4, batch_size=16, num_wor
 
             # ========= Update D ==================
 
-            fake = model.decode(noise_batch)#
-            rec = model.decode(z.detach())
+            fake = model.module.decode(noise_batch)#
+            rec = model.module.decode(z.detach())
 
             loss_rec = calc_reconstruction_loss(real_batch, rec.detach(),loss_type=recon_loss_type, reduction="mean")
 
-            rec_mu, rec_logvar = model.encode(rec)
+            rec_mu, rec_logvar = model.module.encode(rec)
             z_rec = reparameterize(rec_mu, rec_logvar)
 
-            fake_mu, fake_logvar = model.encode(fake)
+            fake_mu, fake_logvar = model.module.encode(fake)
             z_fake = reparameterize(fake_mu, fake_logvar)
 
-            rec_rec = model.decode(z_rec)
-            rec_fake = model.decode(z_fake)
+            rec_rec = model.module.decode(z_rec)
+            rec_fake = model.module.decode(z_fake)
 
             loss_rec_rec = calc_reconstruction_loss(rec.detach(), rec_rec, loss_type=recon_loss_type, reduction="mean")
             loss_fake_rec = calc_reconstruction_loss(fake.detach(), rec_fake, loss_type=recon_loss_type, reduction="mean")
@@ -538,67 +521,57 @@ def train_soft_intro_vae(z_dim=150, lr_e=2e-4, lr_d=2e-4, batch_size=16, num_wor
 
             counter += 1
 
-            #if cur_iter % test_iter == 0:
-        # info = "\nEpoch[{}]({}/{}): time: {:4.4f}: ".format(epoch, iteration, len(train_data_loader), time.time() - start_time)
-        # info += 'Rec: {:.4f}, '.format(loss_rec.data.cpu())
-        # info += 'Kl_E: {:.4f}, expELBO_R: {:.4e}, expELBO_F: {:.4e}, '.format(lossE_real_kl.data.cpu(),
-        #                                                                 exp_elbo_rec.data.cpu(),
-        #                                                                 exp_elbo_fake.cpu())
-        # info += 'Kl_F: {:.4f}, KL_R: {:.4f}'.format(rec_kl.data.cpu(), fake_kl.data.cpu())
-        # info += ' DIFF_Kl_F: {:.4f}'.format(-lossE_real_kl.data.cpu() + fake_kl.data.cpu())
-        # print(info)
+        model.eval()
+        with torch.no_grad():
+            #_, _, _, rec_det = model(real_batch)
+            for batch, labels in val_loader:
+                b_size = batch.size(0)
+                noise_batch = torch.randn(size=(b_size,1,5,6,5)).to(device)
+                real_batch = batch.to(device)
+                fake = model.module.decode(noise_batch)
 
-            model.eval()
-            with torch.no_grad():
-                #_, _, _, rec_det = model(real_batch)
-                for batch, labels in val_loader:
-                    b_size = batch.size(0)
-                    noise_batch = torch.randn(size=(b_size,1,5,6,5)).to(device)
-                    real_batch = batch.to(device)
-                    fake = model.decode(noise_batch)
+                real_mu, real_logvar = model.module.encode(real_batch)
+                z = model.module.reparameterize(real_mu, real_logvar)
+                rec = model.module.decode(z)
 
-                    real_mu, real_logvar = model.encode(real_batch)
-                    z = model.reparameterize(real_mu, real_logvar)
-                    rec = model.decode(z)
+                loss_rec = calc_reconstruction_loss(real_batch, rec, loss_type=recon_loss_type, reduction="mean")
+                lossE_real_kl = calc_kl(real_logvar, real_mu, reduce="mean")
 
-                    loss_rec = calc_reconstruction_loss(real_batch, rec, loss_type=recon_loss_type, reduction="mean")
-                    lossE_real_kl = calc_kl(real_logvar, real_mu, reduce="mean")
+                rec_mu, rec_logvar, z_rec, rec_rec = model(rec.detach())
+                fake_mu, fake_logvar, z_fake, rec_fake = model(fake.detach())
 
-                    rec_mu, rec_logvar, z_rec, rec_rec = model(rec.detach())
-                    fake_mu, fake_logvar, z_fake, rec_fake = model(fake.detach())
+                fake_kl_e = calc_kl(fake_logvar, fake_mu, reduce="none")
+                rec_kl_e = calc_kl(rec_logvar, rec_mu, reduce="none")
 
-                    fake_kl_e = calc_kl(fake_logvar, fake_mu, reduce="none")
-                    rec_kl_e = calc_kl(rec_logvar, rec_mu, reduce="none")
+                loss_fake_rec = calc_reconstruction_loss(fake, rec_fake, loss_type=recon_loss_type, reduction="none")
+                loss_rec_rec = calc_reconstruction_loss(rec, rec_rec, loss_type=recon_loss_type, reduction="none")
 
-                    loss_fake_rec = calc_reconstruction_loss(fake, rec_fake, loss_type=recon_loss_type, reduction="none")
-                    loss_rec_rec = calc_reconstruction_loss(rec, rec_rec, loss_type=recon_loss_type, reduction="none")
+                exp_elbo_fake = (-2 * scale * (beta_rec * loss_fake_rec + beta_neg * fake_kl_e)).exp().mean()
+                exp_elbo_rec = (-2 * scale * (beta_rec * loss_rec_rec + beta_neg * rec_kl_e)).exp().mean()
 
-                    exp_elbo_fake = (-2 * scale * (beta_rec * loss_fake_rec + beta_neg * fake_kl_e)).exp().mean()
-                    exp_elbo_rec = (-2 * scale * (beta_rec * loss_rec_rec + beta_neg * rec_kl_e)).exp().mean()
+                lossE = scale * (beta_rec * loss_rec + beta_kl * lossE_real_kl) + 0.25 * (exp_elbo_fake + exp_elbo_rec)
 
-                    lossE = scale * (beta_rec * loss_rec + beta_kl * lossE_real_kl) + 0.25 * (exp_elbo_fake + exp_elbo_rec)
+                val_lossE += lossE.item()
 
-                    val_lossE += lossE.item()
+                #======================== Decoder Part ===========================
 
-                    #======================== Decoder Part ===========================
+                loss_rec = calc_reconstruction_loss(real_batch, rec.detach(),loss_type=recon_loss_type, reduction="mean")
 
-                    loss_rec = calc_reconstruction_loss(real_batch, rec.detach(),loss_type=recon_loss_type, reduction="mean")
+                rec_mu, rec_logvar, z_rec, rec_rec = model(rec.detach())
+                fake_mu, fake_logvar, z_fake, rec_fake = model(fake.detach())
 
-                    rec_mu, rec_logvar, z_rec, rec_rec = model(rec.detach())
-                    fake_mu, fake_logvar, z_fake, rec_fake = model(fake.detach())
+                rec_rec = model.module.decode(z_rec)#.detach())
+                rec_fake = model.module.decode(z_fake)#.detach())
 
-                    rec_rec = model.decode(z_rec)#.detach())
-                    rec_fake = model.decode(z_fake)#.detach())
+                loss_rec_rec = calc_reconstruction_loss(rec.detach(), rec_rec,loss_type=recon_loss_type, reduction="mean")
+                loss_fake_rec = calc_reconstruction_loss(fake.detach(), rec_fake,loss_type=recon_loss_type, reduction="mean")
 
-                    loss_rec_rec = calc_reconstruction_loss(rec.detach(), rec_rec,loss_type=recon_loss_type, reduction="mean")
-                    loss_fake_rec = calc_reconstruction_loss(fake.detach(), rec_fake,loss_type=recon_loss_type, reduction="mean")
+                rec_kl = calc_kl(rec_logvar, rec_mu, reduce="mean")
+                fake_kl = calc_kl(fake_logvar, fake_mu, reduce="mean")
 
-                    rec_kl = calc_kl(rec_logvar, rec_mu, reduce="mean")
-                    fake_kl = calc_kl(fake_logvar, fake_mu, reduce="mean")
+                lossD = scale * (loss_rec * beta_rec + (rec_kl + fake_kl) * 0.5 * beta_kl + gamma_r * 0.5 * beta_rec * (loss_rec_rec + loss_fake_rec))
 
-                    lossD = scale * (loss_rec * beta_rec + (rec_kl + fake_kl) * 0.5 * beta_kl + gamma_r * 0.5 * beta_rec * (loss_rec_rec + loss_fake_rec))
-
-                    val_lossD += lossD.item()
+                val_lossD += lossD.item()
 
         val_lossE /= len(val_loader)
         val_lossD /= len(val_loader)
@@ -625,9 +598,11 @@ def train_soft_intro_vae(z_dim=150, lr_e=2e-4, lr_d=2e-4, batch_size=16, num_wor
 
 
 # hyperparameters
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
 print("device:", device)
-num_epochs = 150
+model = SoftIntroVAE(12, [[12,1,2],[24,1,2],[32,2,2],[48,2,2]], conditional=False).to(device)
+model = torch.nn.DataParallel(model, device_ids=[1, 2, 3, 4])
+num_epochs = 500
 lr = 2e-4
 batch_size = 16
 beta_kl = 1.0
@@ -635,9 +610,9 @@ beta_rec = 1.0
 beta_neg = 256
 
 train_lossE, train_lossD, val_lossE, val_lossD = train_soft_intro_vae(z_dim=150, lr_e=2e-4, lr_d=2e-4, batch_size=batch_size, num_workers=os.cpu_count(), start_epoch=0,
-                                 num_epochs=num_epochs, num_vae=0, save_interval=5000, recon_loss_type="mse",
-                                 beta_kl=beta_kl, beta_rec=beta_rec, beta_neg=beta_neg, test_iter=1000, seed=-1, pretrained=None,
-                                 device=device)
+                                                                      num_epochs=num_epochs, num_vae=0, save_interval=5000, recon_loss_type="mse",
+                                                                      beta_kl=beta_kl, beta_rec=beta_rec, beta_neg=beta_neg, test_iter=1000, seed=-1, pretrained=None,
+                                                                      device=device)
 # train soft intro vae の引数の中にpretrainedがあるが、指定すれば呼べる？？？？
 log_path = "_SoftIntroVAE/"
 torch.save(model.state_dict(), log_path + "soft_intro_vae_weight.pth")
