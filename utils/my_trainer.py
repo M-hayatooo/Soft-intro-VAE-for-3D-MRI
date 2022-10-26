@@ -67,7 +67,7 @@ def save_checkpoint(model, epoch, iteration, prefix=""):
     print(f"model checkpoint saved @ {model_out_path}")
 
 
-#  =============  Soft Intro VAE  function  =================
+#  ===============  Soft Intro VAE  function  =================
 def train_soft_intro_vae(
     model,
     train_loader,
@@ -110,9 +110,9 @@ def train_soft_intro_vae(
 # ===============================================================================================
 #   パラメータ定義  いじるならここかなぁ
     recon_loss_type = "mse"
-    beta_rec = 1.0
+    beta_rec = 0.1
     beta_neg = 1.0
-    beta_kl = 1.0
+    beta_kl = 0.4
     gamma_r = 1.0
 
     scale = 1 / (80 * 96 * 80)  # normalizing constant, 's' in the paper  desu
@@ -124,7 +124,7 @@ def train_soft_intro_vae(
 
     train_lossE_list, train_lossD_list, val_lossE_list, val_lossD_list = [], [], [], []
     train_lossE, train_lossD, val_lossE, val_lossD = 0.0, 0.0, 0.0, 0.0
-
+    print(f"beta kl = {beta_kl},  beta rec = {beta_rec}")
     start_epoch = 0
     print(f"training epoch:{epochs}")
     for epoch in range(start_epoch, epochs):
@@ -143,12 +143,12 @@ def train_soft_intro_vae(
         batch_rec_errs = []
 
         for batch, labels in train_loader:# iterationには 自動で割り振られたindex番号が適用される
-            # --------------train------------
+            # --------------train--------------
             b_size = batch.size(0)
             noise_batch = torch.randn(size=(b_size, 1, 5, 6, 5)).to(device)
             real_batch = batch.to(device)
 
-            # ============= Update E ================
+            # ============== Update E ================
             fake = model.decode(noise_batch)
 
             real_mu, real_logvar = model.encode(real_batch)
@@ -309,7 +309,7 @@ def train_soft_intro_vae(
     #     kls_rec.append(np.mean(batch_kls_rec))
     #     rec_errs.append(np.mean(batch_rec_errs))
         if epoch % 10 == 0:
-            savename = f"VAEtoSoftIntroVAE_4184epoch_{epoch}.pth"
+            savename = f"VAEtoS-IntroVAE_4184_epoch{epoch}.pth"
         #   torch.save(model.state_dict(), file_path)
             torch.save(model.state_dict(), path + savename)
     #       torch.save(model.state_dict(), log_path + f"softintroVAE_weight_epoch{str(epoch)}.pth")
