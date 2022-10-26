@@ -13,7 +13,8 @@ import torch.optim as optim
 # import os.path as osp
 import torchio as tio
 # import torchvision.utils as vutils
-from sklearn.model_selection import GroupShuffleSplit, train_test_split
+from sklearn.model_selection import (GroupShuffleSplit, StratifiedGroupKFold,
+                                     train_test_split)
 from torch.utils.data import DataLoader, Dataset
 from torchio.transforms.augmentation.intensity.random_bias_field import \
     RandomBiasField
@@ -48,6 +49,8 @@ def parser():
     return args
 
 
+seed_ti = 103
+
 def fix_seed(seed):
     random.seed(seed)
     np.random.seed(seed)
@@ -57,7 +60,7 @@ def fix_seed(seed):
     return
 
 
-fix_seed(0)
+fix_seed(seed_ti)
 
 
 def seed_worker(worker_id):
@@ -78,8 +81,12 @@ def load_dataloader(n_train_rate, batch_size):
         labels[i] = CLASS_MAP[data[i]["label"]]
     pids = np.array(pids)
 
-    gss = GroupShuffleSplit(test_size=0.2, random_state=42)
-    tid, vid = list(gss.split(voxels, groups=pids))[0]
+#   split index  を指定
+    split_index = 4
+    sgk = StratifiedGroupKFold(n_splits=5, shuffle=True, random_state=seed_ti)
+    tid, vid = list(sgk.split(voxels, y=labels, groups=pids))[split_index]
+#    tid, vid = list(gss.split(voxels, groups=pids))[0]
+
     train_voxels = voxels[tid]
     val_voxels = voxels[vid]
     train_labels = labels[tid]
@@ -89,12 +96,12 @@ def load_dataloader(n_train_rate, batch_size):
     val_dataset = BrainDataset(val_voxels, val_labels)
 
     g = torch.Generator()
-    g.manual_seed(0)
+    g.manual_seed(seed_ti)
 #    batch_size = 32
     print(f"batch size:{batch_size}")
-    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, num_workers=os.cpu_count(),
+    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, num_workers=4,
                                   pin_memory=True, shuffle=True, worker_init_fn=seed_worker, generator=g)
-    val_dataloader = DataLoader(val_dataset, batch_size=batch_size, num_workers=os.cpu_count(),
+    val_dataloader = DataLoader(val_dataset, batch_size=batch_size, num_workers=4,
                                 pin_memory=True, shuffle=False, worker_init_fn=seed_worker, generator=g)
 
     #train_datadict, val_datadict = train_test_split(dataset, test_size=1-n_train_rate, shuffle=True, random_state=SEED_VALUE)
@@ -113,7 +120,7 @@ def write_csv(epoch, train_loss, val_loss, path):
 
 def main():
     #   os.environ["CUDA_VISIBLE_DEVICES"] = "6"   #  os.environ["CUDA_VISIBLE_DEVICES"]="4,5,6,7"
-    device = torch.device("cuda:5" if torch.cuda.is_available() and True else "cpu")
+    device = torch.device("cuda:7" if torch.cuda.is_available() and True else "cpu")
     print("device:", device)
 
     # randam.seed(SEED_VALUE)
@@ -137,7 +144,7 @@ def main():
     elif args.model == "VAEtoSoftVAE":
         resnet = models.ResNetVAE(12, [[12,1,2],[24,1,2],[32,2,2],[48,2,2]])
         net = models.SoftIntroVAE(12, [[12,1,2],[24,1,2],[32,2,2],[48,2,2]])
-        log_path = "./logs/" + args.log + "_VAEtoSoftVAE/"
+        log_path = "./logs/" + args.log + "_VAEtoSoftVAE_fixed_seed/"
         print("net: VAE to SoftVAE") # ------------------------------------- #
 
 
