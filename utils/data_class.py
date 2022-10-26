@@ -4,24 +4,24 @@ from datasets.dataset import CLASS_MAP
 from torch.utils.data import Dataset
 
 
+#      data dict expressed
 class BrainDataset(Dataset):
     def __init__(self, data_dict, transform=None, phase="train", class_map=CLASS_MAP):
         self.data = data_dict
         self.voxels = [self._preprocess(data["voxel"]) for data in self.data]
+#        self.voxels = [self._preprocess(v) for v in voxels]
+#        self.voxels = [self._preprocess(data["voxel"]) for data in self.data]
         self.phase = phase
         self.class_map = class_map
         self.transform = transform
-
     def __len__(self):
         return len(self.data)
-
     def __getitem__(self, index):
         voxel = self.voxels[index]
         label = self.class_map[self.data[index]["label"]]
         if self.transform:
             voxel = self.transform(voxel, self.phase)
         return voxel, label
-
     def _preprocess(self, voxel):
         cut_range = 4
         # voxel = voxel[:, 8:88, :]
@@ -29,9 +29,32 @@ class BrainDataset(Dataset):
         voxel = normalize(voxel, np.min(voxel), np.max(voxel))
         voxel = voxel[np.newaxis, ]
         return voxel.astype('f')
-
     def __call__(self, index):
         return self.__getitem__(index)
+
+
+# class BrainDataset(Dataset):
+#     def __init__(self, voxels, labels, transform=None):
+#         self.voxels = [self._preprocess(v) for v in voxels]
+#         self.labels = labels
+#         self.transform = transform
+#     def __len__(self):
+#         return len(self.voxels)
+#     def __getitem__(self, index):
+#         voxel = self.voxels[index]
+#         label = self.labels[index]
+#         if self.transform:
+#             voxel = self.transform(voxel, self.phase)
+#         voxel = self._preprocess(voxel)
+#         return voxel, label
+#     def _preprocess(self, voxel):
+#         cut_range = 4
+#         voxel = np.clip(voxel, 0, cut_range * np.std(voxel))
+#         voxel = normalize(voxel, np.min(voxel), np.max(voxel))
+#         voxel = voxel[np.newaxis, ]
+#         return voxel.astype('f')
+#     def __call__(self, index):
+#         return self.__getitem__(index)
 
 
 def normalize(voxel: np.ndarray, floor: int, ceil: int) -> np.ndarray:
