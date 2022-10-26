@@ -72,7 +72,6 @@ train_dataloader = DataLoader(train_dataset, batch_size=16, num_workers=os.cpu_c
 val_dataloader = DataLoader(val_dataset, batch_size=16, num_workers=os.cpu_count(), pin_memory=True, shuffle=False)
 
 
-
 def calc_kl(logvar, mu):
     bsize = mu.size(0)
     mu = mu.view(bsize, -1)
@@ -109,8 +108,6 @@ def save_checkpoint(model, epoch, iteration, prefix=""):
     torch.save(state, model_out_path)
 
     print("model checkpoint saved @ {}".format(model_out_path))
-
-
 
 
 class BuildingBlock(nn.Module):
@@ -285,7 +282,6 @@ class ResNetCAE(BaseCAE):
         return x
 
 
-
 class VAEResNetEncoder(ResNetEncoder):
     def __init__(self, in_ch, block_setting) -> None:
         super(VAEResNetEncoder, self).__init__(in_ch, block_setting)
@@ -430,13 +426,13 @@ def train_soft_intro_vae(z_dim=150, lr_e=2e-4, lr_d=2e-4, batch_size=16, num_wor
 
 #        for iteration, batch in enumerate(train_data_loader, 0):
         for iteration, (batch, labels) in enumerate(train_data_loader, 0):# iterationには 自動で割り振られたindex番号が適用される
-            # --------------train------------
+            # --------------train----------------
             b_size = batch.size(0)
 
             noise_batch = torch.randn(size=(b_size, 1, 5, 6, 5)).to(device)
             real_batch = batch.to(device)
 
-            # =========== Update E ================
+            # ============== Update E ================
             fake = model.decode(noise_batch)
 
             real_mu, real_logvar = model.encode(real_batch)
@@ -444,13 +440,13 @@ def train_soft_intro_vae(z_dim=150, lr_e=2e-4, lr_d=2e-4, batch_size=16, num_wor
             rec = model.decode(z)
 
             loss_rec = calc_reconstruction_loss(real_batch, rec, loss_type=recon_loss_type, reduction="mean")
-            lossE_real_kl = calc_kl(real_logvar, real_mu, reduce="mean")
+            lossE_real_kl = calc_kl(real_logvar, real_mu)
             # {{ mu,    logvar,    z   ,    y }}を返す
             rec_mu, rec_logvar, z_rec, rec_rec = model(rec.detach())
             fake_mu, fake_logvar, z_fake, rec_fake = model(fake.detach())
 
-            fake_kl_e = calc_kl(fake_logvar, fake_mu, reduce="none")
-            rec_kl_e = calc_kl(rec_logvar, rec_mu, reduce="none")
+            fake_kl_e = calc_kl(fake_logvar, fake_mu)
+            rec_kl_e = calc_kl(rec_logvar, rec_mu)
 
             loss_fake_rec = calc_reconstruction_loss(fake, rec_fake, loss_type=recon_loss_type, reduction="none")
             loss_rec_rec = calc_reconstruction_loss(rec, rec_rec, loss_type=recon_loss_type, reduction="none")
@@ -465,7 +461,7 @@ def train_soft_intro_vae(z_dim=150, lr_e=2e-4, lr_d=2e-4, batch_size=16, num_wor
             optimizer_e.step()
 
             train_lossE += lossE.item()
-            # ========= Update D ==================
+            # =============== Update D ==================
             for param in model.encoder.parameters():
                 param.requires_grad = False
             for param in model.decoder.parameters():
@@ -488,8 +484,8 @@ def train_soft_intro_vae(z_dim=150, lr_e=2e-4, lr_d=2e-4, batch_size=16, num_wor
             loss_rec_rec = calc_reconstruction_loss(rec.detach(), rec_rec, loss_type=recon_loss_type, reduction="mean")
             loss_fake_rec = calc_reconstruction_loss(fake.detach(), rec_fake, loss_type=recon_loss_type, reduction="mean")
 
-            rec_kl = calc_kl(rec_logvar, rec_mu, reduce="mean")
-            fake_kl = calc_kl(fake_logvar, fake_mu, reduce="mean")
+            rec_kl = calc_kl(rec_logvar, rec_mu)
+            fake_kl = calc_kl(fake_logvar, fake_mu)
 
             lossD = scale * (loss_rec * beta_rec + (rec_kl + fake_kl) * 0.5 * beta_kl
                              + gamma_r * 0.5 * beta_rec * (loss_rec_rec + loss_fake_rec))
@@ -548,7 +544,6 @@ batch_size = 16
 beta_kl = 1.0
 beta_rec = 1.0
 beta_neg = 256
-
 
 
 model = train_soft_intro_vae(z_dim=150, lr_e=2e-4, lr_d=2e-4, batch_size=batch_size, num_workers=os.cpu_count(), start_epoch=0,
