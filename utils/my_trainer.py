@@ -12,6 +12,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
+import utils.train_result as train_result
+
 
 def write_csv(epoch, train_loss, val_loss, path):
     with open(path, "a") as f:
@@ -141,12 +143,11 @@ def train_soft_intro_vae(
         batch_kls_rec = []
         batch_rec_errs = []
 
-        for batch, labels in train_loader:# iterationには 自動で割り振られたindex番号が適用される
-            # --------------train--------------
+        for batch, labels in train_loader:
+            #---------------- train ------------------
             b_size = batch.size(0)
             noise_batch = torch.randn(size=(b_size, 1, 5, 6, 5)).to(device)
             real_batch = batch.to(device)
-
             # ============== Update E ================
             fake = model.decode(noise_batch)
 
@@ -183,7 +184,7 @@ def train_soft_intro_vae(
                 param.requires_grad = True
 
             fake = model.decode(noise_batch)
-            rec = model.decode(z.detach())
+            rec  = model.decode(z.detach())
 
             loss_rec = calc_reconstruction_loss(real_batch, rec.detach(), loss_type=recon_loss_type, reduction="mean")
 
@@ -193,21 +194,20 @@ def train_soft_intro_vae(
             fake_mu, fake_logvar = model.encode(fake)
             z_fake = reparameterize(fake_mu, fake_logvar)
 
-            rec_rec = model.decode(z_rec)
+            rec_rec  = model.decode(z_rec)
             rec_fake = model.decode(z_fake)
 
             loss_rec_rec  = calc_reconstruction_loss(rec.detach(), rec_rec, loss_type=recon_loss_type, reduction="mean")
             loss_fake_rec = calc_reconstruction_loss(fake.detach(), rec_fake, loss_type=recon_loss_type, reduction="mean")
 
-            rec_kl = calc_kl(rec_logvar, rec_mu)
+            rec_kl  = calc_kl(rec_logvar, rec_mu)
             fake_kl = calc_kl(fake_logvar, fake_mu)
 
-            lossD = scale * (loss_rec * beta_rec + (rec_kl+fake_kl)*0.5*beta_kl + gamma_r*0.5*beta_rec*(loss_rec_rec+loss_fake_rec))
+            lossD = scale * (loss_rec*beta_rec + (rec_kl+fake_kl)*0.5*beta_kl + gamma_r*0.5*beta_rec*(loss_rec_rec+loss_fake_rec))
 
             optimizer_d.zero_grad()
             lossD.backward()
             optimizer_d.step()
-
             train_lossD += lossD.item()
 
             if torch.isnan(lossD) or torch.isnan(lossE):
@@ -221,10 +221,6 @@ def train_soft_intro_vae(
             batch_rec_errs.append(loss_rec.data.cpu().item())
         # print(f"value of train_loader.dataset:{len(train_loader.dataset)}")
         # print(f"value of train_loader:{len(train_loader)}")
-        kls_real.append(np.mean(batch_kls_real))
-        kls_fake.append(np.mean(batch_kls_fake))
-        kls_rec.append(np.mean(batch_kls_rec))
-        rec_errs.append(np.mean(batch_rec_errs))
 
         train_lossE /= len(train_loader)  # train_lossE /= len(train_loader.dataset)
         train_lossD /= len(train_loader)
@@ -232,8 +228,7 @@ def train_soft_intro_vae(
         train_lossD_list.append(train_lossD)
 
 
-
-        info  = f"Epoch[{epoch}]({epochs}/{len(train_loader)})：time:{(time.time() - start_time):.1f}  "
+        info  = f"Epoch[{epoch}]({epochs}/{len(train_loader)})  "
         info += f'Rec:{loss_rec.data.cpu():.4f}, '
         info += f'Kl_E:{lossE_real_kl.data.cpu():.4f}, expELBO_R:{exp_elbo_rec.data.cpu():.4e}, expELBO_F:{exp_elbo_fake.cpu():.4e}, '
         info += f'Kl_F:{rec_kl.data.cpu():.4f}, KL_R:{ fake_kl.data.cpu():.4f}, '
@@ -258,24 +253,23 @@ def train_soft_intro_vae(
                 loss_rec = calc_reconstruction_loss(real_batch, rec, loss_type=recon_loss_type, reduction="mean")
                 lossE_real_kl = calc_kl(real_logvar, real_mu)
 
-                rec_mu, rec_logvar, z_rec, rec_rec = model(rec.detach())
+                rec_mu,   rec_logvar,  z_rec, rec_rec  = model(rec.detach())
                 fake_mu, fake_logvar, z_fake, rec_fake = model(fake.detach())
 
                 fake_kl_e = calc_kl(fake_logvar, fake_mu)
-                rec_kl_e = calc_kl(rec_logvar, rec_mu)
+                rec_kl_e  = calc_kl(rec_logvar, rec_mu)
 
                 loss_fake_rec = calc_reconstruction_loss(fake, rec_fake, loss_type=recon_loss_type, reduction="none")
-                loss_rec_rec = calc_reconstruction_loss(rec, rec_rec, loss_type=recon_loss_type, reduction="none")
+                loss_rec_rec  = calc_reconstruction_loss(rec, rec_rec, loss_type=recon_loss_type, reduction="none")
 
                 exp_elbo_fake = (-2 * scale * (beta_rec * loss_fake_rec + beta_neg * fake_kl_e)).exp().mean()
-                exp_elbo_rec = (-2 * scale * (beta_rec * loss_rec_rec + beta_neg * rec_kl_e)).exp().mean()
+                exp_elbo_rec  = (-2 * scale * (beta_rec * loss_rec_rec + beta_neg * rec_kl_e)).exp().mean()
                 # total loss
-                lossE = scale * (beta_rec * loss_rec + beta_kl * lossE_real_kl) + 0.25 * (exp_elbo_fake + exp_elbo_rec)
+                lossE = scale * (beta_rec*loss_rec + beta_kl*lossE_real_kl) + 0.25*(exp_elbo_fake+exp_elbo_rec)
                 # backprop
                 # ============================ Decoder ==============================
                 # fake = model.decode(noise_batch)
                 # rec = model.decode(z.detach())
-
                 loss_rec = calc_reconstruction_loss(real_batch, rec.detach(),loss_type=recon_loss_type, reduction="mean")
 
                 rec_mu, rec_logvar = model.encode(rec)
@@ -284,17 +278,16 @@ def train_soft_intro_vae(
                 fake_mu, fake_logvar = model.encode(fake)
                 z_fake = reparameterize(fake_mu, fake_logvar)
 
-                rec_rec = model.decode(z_rec)
+                rec_rec  = model.decode(z_rec)
                 rec_fake = model.decode(z_fake)
 
-                loss_rec_rec = calc_reconstruction_loss(rec.detach(), rec_rec, loss_type=recon_loss_type, reduction="mean")
+                loss_rec_rec  = calc_reconstruction_loss(rec.detach(),   rec_rec, loss_type=recon_loss_type, reduction="mean")
                 loss_fake_rec = calc_reconstruction_loss(fake.detach(), rec_fake, loss_type=recon_loss_type, reduction="mean")
 
-                rec_kl = calc_kl(rec_logvar, rec_mu)
+                rec_kl  = calc_kl(rec_logvar, rec_mu)
                 fake_kl = calc_kl(fake_logvar, fake_mu)
 
-                lossD = scale * (loss_rec * beta_rec + (rec_kl + fake_kl) * 0.5 * beta_kl + gamma_r * 0.5 * beta_rec * (loss_rec_rec + loss_fake_rec))
-
+                lossD = scale * (loss_rec*beta_rec + (rec_kl+fake_kl)*0.5*beta_kl + gamma_r*0.5*beta_rec*(loss_rec_rec+loss_fake_rec))
                 val_lossD += lossD.item()
 
 
@@ -308,11 +301,11 @@ def train_soft_intro_vae(
         #         torch.cat([real_batch[:max_imgs], rec_det[:max_imgs], fake[:max_imgs]], dim=0).data.cpu(),
         #         '{}/image_{}.jpg'.format("./", cur_iter), nrow=num_row)
         #cur_iter += 1
-    # if epoch > num_vae - 1:
-    #     kls_real.append(np.mean(batch_kls_real))
-    #     kls_fake.append(np.mean(batch_kls_fake))
-    #     kls_rec.append(np.mean(batch_kls_rec))
-    #     rec_errs.append(np.mean(batch_rec_errs))
+        kls_real.append(np.mean(batch_kls_real))
+        kls_fake.append(np.mean(batch_kls_fake))
+        kls_rec.append(np.mean(batch_kls_rec))
+        rec_errs.append(np.mean(batch_rec_errs))
+
         if epoch % 10 == 0:
             savename = f"VAEtoS-IntroVAE_4184_epoch{epoch}.pth"
         #   torch.save(model.state_dict(), file_path)
@@ -330,10 +323,12 @@ def train_soft_intro_vae(
         val_lossD_list.append(val_lossD)
 
         write_fig(path + "/loss.txt", train_lossE_list, val_lossE_list, train_lossD_list, val_lossD_list)
+#        write_fig(path + "/loss.txt", train_lossE_list, val_lossE_list, train_lossD_list, val_lossD_list)
 
     e_scheduler.step()
     d_scheduler.step()
 
+    train_result.result_S_IntroVAE(train_lossE, train_lossD, val_lossE, val_lossD, path)
     print("Finished S-IntroVAE Traininig !!")
     return train_lossE_list, train_lossD_list, val_lossE_list, val_lossD_list
 
@@ -440,8 +435,11 @@ def train_ResNetVAE(
         # write_fig(path + "/mse.txt",train_losses_mse,val_losses_mse)
         # write_fig(path + "/kl.txt",train_losses_kl,val_losses_kl)
 
+    if epochs != 0:
+        torch.save(net.state_dict(), path + "resnetvae_weight.pth")
+        print("saved ResNetVAE param and ", end="") # これで改行しない
 
-    print("Finished ResNetVAE Traininig")
+    print("finished ResNetVAE traininig.")
     return train_losses, val_losses
 # --------------------------------------------------------------------------------#
 
