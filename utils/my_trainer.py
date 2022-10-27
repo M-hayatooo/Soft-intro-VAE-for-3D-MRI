@@ -323,12 +323,12 @@ def train_soft_intro_vae(
         val_lossD_list.append(val_lossD)
 
         write_fig(path + "/loss.txt", train_lossE_list, val_lossE_list, train_lossD_list, val_lossD_list)
-#        write_fig(path + "/loss.txt", train_lossE_list, val_lossE_list, train_lossD_list, val_lossD_list)
+        write_kl_losses(path + "/kl_losses.txt", kls_real, kls_fake, kls_rec, rec_errs)
 
     e_scheduler.step()
     d_scheduler.step()
 
-    train_result.result_S_IntroVAE(train_lossE, train_lossD, val_lossE, val_lossD, path)
+    train_result.result_rec_kls_loss(kls_real, kls_fake, kls_rec, rec_errs, path)
     print("Finished S-IntroVAE Traininig !!")
     return train_lossE_list, train_lossD_list, val_lossE_list, val_lossD_list
 
@@ -339,13 +339,22 @@ def init_weights_he(m):
     return
 
 
-def write_fig(path, train, val, trainD, valD):
+def write_fig(path, trainE, valE, trainD, valD):
     with open(path, "w") as f:
-        for t,v,td,vd in zip(train, val, trainD, valD):
-            f.write("train==%s\n" % str(t))
-            f.write("val====%s\n" % str(v))
+        for t,v,td,vd in zip(trainE, valE, trainD, valD):
+            f.write("trainE=%s\n" % str(t))
+            f.write("valE===%s\n" % str(v))
             f.write("trainD=%s\n" % str(td))
             f.write("valD===%s\n" % str(vd))
+    return
+
+def write_kl_losses(path, kls_real, kls_fake, kls_rec, rec_errs):
+    with open(path, "w") as f:
+        for t,v,td,vd in zip(kls_real, kls_fake, kls_rec, rec_errs):
+            f.write("kls_real==%s\n" % str(t))
+            f.write("kls_fake==%s\n" % str(v))
+            f.write("kls_rec===%s\n" % str(td))
+            f.write("rec_errs==%s\n" % str(vd))
     return
 
 
