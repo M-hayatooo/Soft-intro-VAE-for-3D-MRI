@@ -11,8 +11,16 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-
 import utils.train_result as train_result
+from sklearn.datasets import make_classification
+from sklearn.manifold import TSNE
+from sklearn.metrics import accuracy_score, classification_report
+from sklearn.model_selection import train_test_split
+from skorch import NeuralNetClassifier
+from skorch.callbacks import Callback, Checkpoint, EarlyStopping
+from skorch.dataset import CVSplit
+# from tune_sklearn import TuneGridSearchCV
+from tune_sklearn import TuneSearchCV
 
 
 def write_csv(epoch, train_loss, val_loss, path):
@@ -35,11 +43,17 @@ def reparameterize(mu, logvar):
     return mu + eps * std
 
 
-def calc_reconstruction_loss(x, recon_x, loss_type='mse', reduction='mean'):
+def calc_reconstruction_loss(x, recon_x, reduction='None'):
     bsize = x.size(0)
     x = x.view(bsize, -1)
     out = recon_x.view(bsize, -1)
-    mse = torch.mean(torch.sum(F.mse_loss(x, out, reduction='none'), dim=1), dim=0)
+    if reduction == 'mean':
+        # 平均とるよ
+        mse = torch.mean(torch.sum(F.mse_loss(x, out, reduction='none'), dim=1), dim=0)
+    else:
+        # 平均取らないよ
+        mse = torch.sum(F.mse_loss(x, out, reduction='none'), dim=1)
+
     return mse
 
 
@@ -78,7 +92,7 @@ def train_soft_intro_vae(
     lr=0.001,
     device=torch.device("cpu"),
     path="./output_SoftIntroVAE/",
-    pretrained_path=None
+    pretrained_path=None,
 ):
     seed = 77
 
@@ -112,12 +126,12 @@ def train_soft_intro_vae(
 # ===============================================================================================
 #   パラメータ定義  いじるならここかなぁ
     recon_loss_type = "mse"
-    beta_rec = 0.1
-    beta_neg = 1.0
-    beta_kl = 0.4
+    beta_rec = 100.0
+    beta_neg = 150.0
+    beta_kl = 1.0
     gamma_r = 1.0
 
-    scale = 1 / (80 * 96 * 80)  # normalizing constant, 's' in the paper  desu
+    scale = 1 / (80 * 96 * 80)  # normalizing constant, 's' in the paper desu
 
     start_time = time.time()
 
@@ -125,7 +139,7 @@ def train_soft_intro_vae(
     train_lossE_list, train_lossD_list, val_lossE_list, val_lossD_list = [], [], [], []
     train_lossE, train_lossD, val_lossE, val_lossD = 0.0, 0.0, 0.0, 0.0
     kls_real, kls_fake, kls_rec, rec_errs = [], [], [], []
-    print(f"beta kl = {beta_kl},  beta rec = {beta_rec}")
+    print(f"beta kl = {beta_kl},  beta neg = {beta_neg},  beta rec = {beta_rec}")
     start_epoch = 0
     print(f"training epoch:{epochs}")
     for epoch in range(start_epoch, epochs):
@@ -155,7 +169,7 @@ def train_soft_intro_vae(
             z = model.reparameterize(real_mu, real_logvar)
             rec = model.decode(z)
 
-            loss_rec = calc_reconstruction_loss(real_batch, rec, loss_type=recon_loss_type, reduction="mean")
+            loss_rec = calc_reconstruction_loss(real_batch, rec, reduction="mean")
             lossE_real_kl = calc_kl(real_logvar, real_mu)
             # {{ mu,    logvar,   z  ,    y }}を返す
             rec_mu, rec_logvar, z_rec, rec_rec = model(rec.detach())
@@ -164,11 +178,11 @@ def train_soft_intro_vae(
             fake_kl_e = calc_kl(fake_logvar, fake_mu)
             rec_kl_e  = calc_kl(rec_logvar, rec_mu)
 
-            loss_fake_rec = calc_reconstruction_loss(fake, rec_fake, loss_type=recon_loss_type, reduction="none")
-            loss_rec_rec  = calc_reconstruction_loss(rec,  rec_rec,  loss_type=recon_loss_type, reduction="none")
+            loss_fake_rec = calc_reconstruction_loss(fake, rec_fake, reduction="none")
+            loss_rec_rec  = calc_reconstruction_loss(rec,  rec_rec,  reduction="none")
 
             exp_elbo_fake = (-2 * scale * (beta_rec*loss_fake_rec + beta_neg*fake_kl_e)).exp().mean()
-            exp_elbo_rec  = (-2 * scale * (beta_rec*loss_rec_rec  + beta_neg* rec_kl_e)).exp().mean()
+            exp_elbo_rec  = (-2 * scale * (beta_rec*loss_rec_rec  + beta_neg*rec_kl_e)).exp().mean()
             # ===== encoder total loss =====
             lossE = scale * (beta_rec*loss_rec + beta_kl*lossE_real_kl) + 0.25*(exp_elbo_fake+exp_elbo_rec)
             # backprop part of encoder
@@ -305,12 +319,15 @@ def train_soft_intro_vae(
         kls_fake.append(np.mean(batch_kls_fake))
         kls_rec.append(np.mean(batch_kls_rec))
         rec_errs.append(np.mean(batch_rec_errs))
-
-        if epoch % 10 == 0:
-            savename = f"VAEtoS-IntroVAE_4184_epoch{epoch}.pth"
-        #   torch.save(model.state_dict(), file_path)
-            torch.save(model.state_dict(), path + savename)
-    #       torch.save(model.state_dict(), log_path + f"softintroVAE_weight_epoch{str(epoch)}.pth")
+        # beta_rec = 10.0
+        # beta_neg = 1
+        # beta_kl = 0.05
+        # gamma_r = 1
+        savename = f"VAEtoS-IntroVAE_4184_epoch{epoch}.pth"
+    #   torch.save(model.state_dict(), file_path)
+        torch.save(model.state_dict(), path + savename)
+        # path == ... _VAEtoSoftVAE_fixed_seed/rec1_ng300_kl1_gamma1/
+#       torch.save(model.state_dict(), log_path + f"softintroVAE_weight_epoch{str(epoch)}.pth")
 
 
         now_time = time.time()
