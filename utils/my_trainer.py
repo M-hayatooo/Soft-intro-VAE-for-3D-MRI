@@ -29,11 +29,19 @@ def write_csv(epoch, train_loss, val_loss, path):
         writer.writerow([epoch, train_loss, val_loss])
 
 
-def calc_kl(logvar, mu):
+def calc_kl(logvar, mu, reduce='sum'):
     bsize = mu.size(0)
     mu = mu.view(bsize, -1)
     logvar = logvar.view(bsize, -1)
-    return torch.mean(-0.5 * torch.sum(1 + logvar - mu ** 2 - logvar.exp(), dim=1), dim=0)
+    kl = -0.5 * torch.sum(1 + logvar - mu**2 - logvar.exp(), dim=1)
+#   kl.size() == torch.Size([16])
+    if reduce == 'sum':
+        kl = torch.sum(kl)
+
+    elif reduce == 'mean':
+        kl = torch.mean(kl)
+
+    return kl
 
 
 def reparameterize(mu, logvar):
@@ -43,17 +51,22 @@ def reparameterize(mu, logvar):
     return mu + eps * std
 
 
-def calc_reconstruction_loss(x, recon_x, reduction='None'):
+def calc_reconstruction_loss(x, recon_x, loss_type="mse", reduction='None'):
     bsize = x.size(0)
     x = x.view(bsize, -1)
     out = recon_x.view(bsize, -1)
     if reduction == 'mean':
         # 平均とるよ
+        # F.mse_loss(x, out, reduction='none').size              == torch.Size([16, 614,400]) {batch, 80*96*80}
+        # torch.sum(F.mse_loss(x, out, reduction='none'), dim=1) == torch.Size([16]) {batch}
+        # バッチごとに sum 取って 16個の値にreduction
         mse = torch.mean(torch.sum(F.mse_loss(x, out, reduction='none'), dim=1), dim=0)
+    #   ↑↑↑
+    # 16batch の平均
     else:
         # 平均取らないよ
         mse = torch.sum(F.mse_loss(x, out, reduction='none'), dim=1)
-
+        # torch.sum(F.mse_loss(x, out, reduction='none'), dim=1) == torch.Size([16]) {batch}
     return mse
 
 
@@ -169,18 +182,18 @@ def train_soft_intro_vae(
             z = model.reparameterize(real_mu, real_logvar)
             rec = model.decode(z)
 
-            loss_rec = calc_reconstruction_loss(real_batch, rec, reduction="mean")
-            lossE_real_kl = calc_kl(real_logvar, real_mu)
+            loss_rec = calc_reconstruction_loss(real_batch, rec, loss_type=recon_loss_type, reduction="mean")
+            lossE_real_kl = calc_kl(real_logvar, real_mu, reduce="mean")
             # {{ mu,    logvar,   z  ,    y }}を返す
             rec_mu, rec_logvar, z_rec, rec_rec = model(rec.detach())
             fake_mu, fake_logvar, z_fake, rec_fake = model(fake.detach())
 
-            fake_kl_e = calc_kl(fake_logvar, fake_mu)
-            rec_kl_e  = calc_kl(rec_logvar, rec_mu)
+            fake_kl_e = calc_kl(fake_logvar, fake_mu, reduce="none")
+            rec_kl_e  = calc_kl(rec_logvar,  rec_mu,  reduce="none")
 
-            loss_fake_rec = calc_reconstruction_loss(fake, rec_fake, reduction="none")
-            loss_rec_rec  = calc_reconstruction_loss(rec,  rec_rec,  reduction="none")
-
+            loss_fake_rec = calc_reconstruction_loss(fake, rec_fake, loss_type=recon_loss_type, reduction="none")
+            loss_rec_rec  = calc_reconstruction_loss(rec,  rec_rec,  loss_type=recon_loss_type, reduction="none")
+            # loss_fake_rec は すぐ下の所で平均を取るから reduction しない
             exp_elbo_fake = (-2 * scale * (beta_rec*loss_fake_rec + beta_neg*fake_kl_e)).exp().mean()
             exp_elbo_rec  = (-2 * scale * (beta_rec*loss_rec_rec  + beta_neg*rec_kl_e)).exp().mean()
             # ===== encoder total loss =====
@@ -200,7 +213,7 @@ def train_soft_intro_vae(
             fake = model.decode(noise_batch)
             rec  = model.decode(z.detach())
 
-            loss_rec = calc_reconstruction_loss(real_batch, rec.detach(), loss_type=recon_loss_type, reduction="mean")
+            loss_rec = calc_reconstruction_loss(real_batch, rec.detach(), reduction="mean")
 
             rec_mu, rec_logvar = model.encode(rec)
             z_rec = reparameterize(rec_mu, rec_logvar)
@@ -211,11 +224,11 @@ def train_soft_intro_vae(
             rec_rec  = model.decode(z_rec)
             rec_fake = model.decode(z_fake)
 
-            loss_rec_rec  = calc_reconstruction_loss(rec.detach(), rec_rec, loss_type=recon_loss_type, reduction="mean")
+            loss_rec_rec  = calc_reconstruction_loss(rec.detach(),  rec_rec,  loss_type=recon_loss_type, reduction="mean")
             loss_fake_rec = calc_reconstruction_loss(fake.detach(), rec_fake, loss_type=recon_loss_type, reduction="mean")
 
-            rec_kl  = calc_kl(rec_logvar, rec_mu)
-            fake_kl = calc_kl(fake_logvar, fake_mu)
+            rec_kl  = calc_kl(rec_logvar, rec_mu, reduce="mean")
+            fake_kl = calc_kl(fake_logvar, fake_mu, reduce="mean")
 
             lossD = scale * (loss_rec*beta_rec + (rec_kl+fake_kl)*0.5*beta_kl + gamma_r*0.5*beta_rec*(loss_rec_rec+loss_fake_rec))
 
@@ -265,16 +278,16 @@ def train_soft_intro_vae(
                 rec = model.decode(z)
 
                 loss_rec = calc_reconstruction_loss(real_batch, rec, loss_type=recon_loss_type, reduction="mean")
-                lossE_real_kl = calc_kl(real_logvar, real_mu)
+                lossE_real_kl = calc_kl(real_logvar, real_mu, reduce="mean")
 
                 rec_mu,   rec_logvar,  z_rec, rec_rec  = model(rec.detach())
                 fake_mu, fake_logvar, z_fake, rec_fake = model(fake.detach())
 
-                fake_kl_e = calc_kl(fake_logvar, fake_mu)
-                rec_kl_e  = calc_kl(rec_logvar, rec_mu)
+                fake_kl_e = calc_kl(fake_logvar, fake_mu, reduce="none")
+                rec_kl_e  = calc_kl(rec_logvar, rec_mu, reduce="none")
 
                 loss_fake_rec = calc_reconstruction_loss(fake, rec_fake, loss_type=recon_loss_type, reduction="none")
-                loss_rec_rec  = calc_reconstruction_loss(rec, rec_rec, loss_type=recon_loss_type, reduction="none")
+                loss_rec_rec  = calc_reconstruction_loss(rec,  rec_rec,  loss_type=recon_loss_type, reduction="none")
 
                 exp_elbo_fake = (-2 * scale * (beta_rec * loss_fake_rec + beta_neg * fake_kl_e)).exp().mean()
                 exp_elbo_rec  = (-2 * scale * (beta_rec * loss_rec_rec + beta_neg * rec_kl_e)).exp().mean()
@@ -298,8 +311,8 @@ def train_soft_intro_vae(
                 loss_rec_rec  = calc_reconstruction_loss(rec.detach(),   rec_rec, loss_type=recon_loss_type, reduction="mean")
                 loss_fake_rec = calc_reconstruction_loss(fake.detach(), rec_fake, loss_type=recon_loss_type, reduction="mean")
 
-                rec_kl  = calc_kl(rec_logvar, rec_mu)
-                fake_kl = calc_kl(fake_logvar, fake_mu)
+                rec_kl  = calc_kl(rec_logvar, rec_mu, reduce="mean")
+                fake_kl = calc_kl(fake_logvar, fake_mu, reduce="mean")
 
                 lossD = scale * (loss_rec*beta_rec + (rec_kl+fake_kl)*0.5*beta_kl + gamma_r*0.5*beta_rec*(loss_rec_rec+loss_fake_rec))
                 val_lossD += lossD.item()
