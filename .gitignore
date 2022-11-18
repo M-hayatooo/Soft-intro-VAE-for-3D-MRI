@@ -10,6 +10,8 @@ result_fig/
 
 models/__pycache__/
 models/.ipynb_checkpoints
+utils/__pycache__/
+utils/.ipynb_checkpoints
 
 ### Python ###
 # Byte-compiled / optimized / DLL files
