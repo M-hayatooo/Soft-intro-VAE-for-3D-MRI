@@ -5,6 +5,7 @@ import random
 import time
 
 import matplotlib.pyplot as plt
+import models.models as models
 import numpy as np
 import torch
 # pytorch
@@ -12,6 +13,10 @@ import torch.nn as nn
 import torch.optim as optim
 # import os.path as osp
 import torchio as tio
+import utils.confusion as confusion
+import utils.my_trainer as trainer
+import utils.train_result as train_result
+from datasets.dataset import load_data
 # import torchvision.utils as vutils
 from sklearn.model_selection import (GroupShuffleSplit, StratifiedGroupKFold,
                                      train_test_split)
@@ -22,12 +27,6 @@ from torchio.transforms.augmentation.intensity.random_noise import RandomNoise
 from torchvision import transforms
 from torchvision.utils import make_grid
 from tqdm import tqdm
-
-import models.models as models
-import utils.confusion as confusion
-import utils.my_trainer as trainer
-import utils.train_result as train_result
-from datasets.dataset import load_data
 from utils.data_load import BrainDataset
 
 #"CN", "AD", "EMCI", "LMCI", "SMC", "MCI"
@@ -37,7 +36,7 @@ SEED_VALUE = 82
 def parser():
     parser = argparse.ArgumentParser(description="example")
     parser.add_argument("--model", type=str, default="SoftIntroVAE")
-    parser.add_argument("--batch_size", type=int, default=16)
+    parser.add_argument("--batch_size", type=int, default=48)
     parser.add_argument("--epoch", type=int, default=400)
     parser.add_argument("--Softepoch", type=int, default=500)
     parser.add_argument("--lr", type=float, default=0.001)
@@ -97,11 +96,11 @@ def load_dataloader(n_train_rate, batch_size):
 
     g = torch.Generator()
     g.manual_seed(seed_ti)
-#    batch_size = 32
+
     print(f"batch size:{batch_size}")
-    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, num_workers=4,
+    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, num_workers=28,
                                   pin_memory=True, shuffle=True, worker_init_fn=seed_worker, generator=g)
-    val_dataloader = DataLoader(val_dataset, batch_size=batch_size, num_workers=4,
+    val_dataloader = DataLoader(val_dataset, batch_size=batch_size, num_workers=28,
                                 pin_memory=True, shuffle=False, worker_init_fn=seed_worker, generator=g)
 
     #train_datadict, val_datadict = train_test_split(dataset, test_size=1-n_train_rate, shuffle=True, random_state=SEED_VALUE)
@@ -117,10 +116,9 @@ def write_csv(epoch, train_loss, val_loss, path):
         writer.writerow([epoch, train_loss, val_loss])
 
 
-
 def main():
     #   os.environ["CUDA_VISIBLE_DEVICES"] = "6"   #  os.environ["CUDA_VISIBLE_DEVICES"]="4,5,6,7"
-    device = torch.device("cuda:7" if torch.cuda.is_available() and True else "cpu")
+    device = torch.device("cuda:5" if torch.cuda.is_available() and True else "cpu")
     print("device:", device)
 
     # randam.seed(SEED_VALUE)
@@ -130,7 +128,7 @@ def main():
     args = parser()
 
     if args.model == "ResNetCAE":
-        net = models.ResNetCAE(12, [[12,1,2],[24,1,2],[32,2,2],[48,2,2]]) # ここでmodelの block 内容指定
+        net = models.ResNetCAE(12, [[12,1,2],[24,1,2],[32,2,2],[48,2,2]]) # ここでmodelの block 構造指定
         log_path = "./logs/" + args.log + "_ResNetCAE/"
         print("net: ResNetCAE") # ------------------------------------- #
     elif args.model == "ResNetVAE":
@@ -139,12 +137,12 @@ def main():
         print("net: ResNetVAE") # ------------------------------------- #
     elif args.model == "SoftIntroVAE":
         net = models.SoftIntroVAE(12, [[12,1,2],[24,1,2],[32,2,2],[48,2,2]])
-        log_path = "./logs/" + args.log + "_SoftIntroVAE/"
+        log_path = "./logs/" + args.log + "_SoftIntroVAE/only_VAE1/"
         print("net: SoftIntroVAE") # ------------------------------------- #
     elif args.model == "VAEtoSoftVAE":
         resnet = models.ResNetVAE(12, [[12,1,2],[24,1,2],[32,2,2],[48,2,2]])
         net = models.SoftIntroVAE(12, [[12,1,2],[24,1,2],[32,2,2],[48,2,2]])
-        log_path = "./logs/" + args.log + "_VAEtoSoftVAE_fixed_seed/"
+        log_path = "./logs/" + args.log + "_VAEtoSoftVAE_fixed_seed/only_VAE1/"
         print("net: VAE to SoftVAE") # ------------------------------------- #
 
 
@@ -155,7 +153,7 @@ def main():
         f.write("{}".format(args))
 
 
-#   ここで データをロードする .
+#   ここで データをロードする.
     train_loader, val_loader = load_dataloader(args.n_train, args.batch_size)
     # loadnet or train
     if args.train_or_loadnet == "loadnet":
@@ -186,12 +184,11 @@ def main():
 
         elif args.model == "VAEtoSoftVAE":
             train_loss, val_loss = trainer.train_ResNetVAE(resnet, train_loader, val_loader, args.epoch, args.lr, device, log_path)
-            torch.save(resnet.state_dict(), log_path + "resnetvae_weight.pth")
             pretrained_path = log_path + "resnetvae_weight.pth"
             train_lossE, train_lossD, val_lossE, val_lossD = trainer.train_soft_intro_vae(net, train_loader, val_loader, args.Softepoch, args.lr, device, log_path, pretrained_path)
             torch.save(net.state_dict(), log_path + "soft_intro_vae_weight.pth")
             print("saved S-IntroVAE net weight!")
-            train_result.result_ae(train_lossE, val_lossE, log_path)
+            train_result.result_S_IntroVAE(train_lossE, train_lossD, val_lossE, val_lossD, log_path)
 #            train_result.result_ae(train_lossE, train_lossD, val_lossE, val_lossD, log_path)
 
 
