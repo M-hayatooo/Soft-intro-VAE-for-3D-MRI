@@ -5,6 +5,8 @@ data/
 *.zip
 
 cifar10_ds
+cifar10_grid*.png
+
 image_*.jpg
 result_fig/
 
