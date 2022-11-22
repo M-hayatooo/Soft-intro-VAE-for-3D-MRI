@@ -106,7 +106,7 @@ class ResNetDecoder(nn.Module):
                 in_ch = c
         blocks.append(nn.Sequential(
             nn.Conv3d(in_ch, 1, kernel_size=3, stride=1, padding=1, bias=True),
-            nn.LeakyReLU(0.2, inplace=True), # nn.ReLU(),
+            nn.LeakyReLU(0.2),
         ))
         self.blocks = nn.Sequential(*blocks)
 
