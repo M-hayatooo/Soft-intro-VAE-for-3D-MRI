@@ -10,11 +10,11 @@ class BuildingBlock(nn.Module):
         super(BuildingBlock, self).__init__()
         self.res = stride == 1
         self.shortcut = self._shortcut()
-        self.relu = nn.ReLU(inplace=True)
+        self.relu = nn.LeakyReLU(0.2, inplace=True) # nn.ReLU(inplace=True)
         self.block = nn.Sequential(
             nn.Conv3d(in_ch, out_ch, kernel_size=3, stride=1, padding=1, bias=bias),
             nn.BatchNorm3d(out_ch),
-            nn.ReLU(inplace=True),
+            nn.LeakyReLU(0.2, inplace=True), #nn.ReLU(inplace=True),
             nn.AvgPool3d(kernel_size=stride),
             nn.Conv3d(out_ch, out_ch, kernel_size=3, stride=1, padding=1, bias=bias),
             nn.BatchNorm3d(out_ch),
@@ -30,16 +30,17 @@ class BuildingBlock(nn.Module):
         else:
             return self.relu(self.block(x))
 
+
 class UpsampleBuildingkBlock(nn.Module):
     def __init__(self, in_ch, out_ch, stride, bias=False):
         super(UpsampleBuildingkBlock, self).__init__()
         self.res = stride == 1
         self.shortcut = self._shortcut()
-        self.relu = nn.ReLU(inplace=True)
+        self.relu = nn.LeakyReLU(0.2, inplace=True) # nn.ReLU(inplace=True)
         self.block = nn.Sequential(
             nn.Conv3d(in_ch, in_ch, kernel_size=3, stride=1, padding=1, bias=bias),
             nn.BatchNorm3d(in_ch),
-            nn.ReLU(inplace=True),
+            nn.LeakyReLU(0.2, inplace=True), # nn.ReLU(inplace=True),
             nn.Upsample(scale_factor=stride),
             nn.Conv3d(in_ch, out_ch, kernel_size=3, stride=1, padding=1, bias=bias),
             nn.BatchNorm3d(out_ch),
@@ -65,7 +66,7 @@ class ResNetEncoder(nn.Module):
         blocks = [nn.Sequential(
             nn.Conv3d(1, in_ch, kernel_size=3, stride=1, padding=1, bias=True),
             nn.BatchNorm3d(in_ch),
-            nn.ReLU(inplace=True),
+            nn.LeakyReLU(0.2, inplace=True), # nn.ReLU(inplace=True),
         )]
         for line in self.block_setting:
             c, n, s = line[0], line[1], line[2]
@@ -89,7 +90,7 @@ class ResNetDecoder(nn.Module):
             blocks = [nn.Sequential(
                 nn.Conv3d(1, last, 1, 1, bias=True),
                 nn.BatchNorm3d(last),
-                nn.ReLU(inplace=True),
+                nn.LeakyReLU(0.2, inplace=True), # nn.ReLU(inplace=True),
             )]
         in_ch = last
         for i in range(len(encoder.block_setting)):
@@ -105,7 +106,7 @@ class ResNetDecoder(nn.Module):
                 in_ch = c
         blocks.append(nn.Sequential(
             nn.Conv3d(in_ch, 1, kernel_size=3, stride=1, padding=1, bias=True),
-            nn.ReLU(),
+            nn.LeakyReLU(0.2, inplace=True), # nn.ReLU(),
         ))
         self.blocks = nn.Sequential(*blocks)
 
@@ -208,7 +209,6 @@ class ResNetVAE(BaseVAE):
         x_re = self.decoder(z)
         return x_re, mu, logvar
 
-
 #    def Rmse(x_re, x):
 #        return torch.sqrt(torch.mean((x_re - x)**2))
 
@@ -216,7 +216,6 @@ class ResNetVAE(BaseVAE):
 #        re_err = self.Rmse(x_re, x)
 #        kld = -0.5 * torch.sum(1 + logvar - mu**2 - logvar.exp())
 #        return re_err + kld
-
 
 class SoftIntroVAE(nn.Module):
     def __init__(self, in_ch, block_setting) -> None:
@@ -235,6 +234,15 @@ class SoftIntroVAE(nn.Module):
         x_re = self.decoder(z)
         return mu, logvar, z, x_re
 
+    def encode(self, x, o_cond=None):
+        mu, logvar = self.encoder(x)
+        return mu, logvar
+
+    def decode(self, z, y_cond=None):
+        y = self.decoder(z)
+        return y
+
+
     # def loss(self, x_re, x, mu, logvar):
     #     re_err = torch.sqrt(torch.mean((x_re - x)**2)) # ==  self.Rmse(x_re, x)
     #     kld = -0.5 * torch.sum(1 + logvar - mu**2 - logvar.exp())
@@ -249,11 +257,3 @@ class SoftIntroVAE(nn.Module):
     def sample_with_noise(self, num_samples=1, device=torch.device("cpu"), y_cond=None):
         z = torch.randn(num_samples, self.z_dim).to(device)
         return self.decode(z, y_cond=y_cond)
-
-    def encode(self, x, o_cond=None):
-        mu, logvar = self.encoder(x)
-        return mu, logvar
-
-    def decode(self, z, y_cond=None):
-        y = self.decoder(z)
-        return y
