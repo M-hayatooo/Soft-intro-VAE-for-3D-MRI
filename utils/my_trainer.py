@@ -4,6 +4,7 @@ import random
 import time
 from asyncore import loop
 
+import matplotlib.pyplot as plt
 import models.lossf as lossf
 import models.models as models
 import numpy as np
@@ -12,6 +13,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import utils.train_result as train_result
+from skimage.metrics import mean_squared_error
+from skimage.metrics import structural_similarity as ssim
 from sklearn.datasets import make_classification
 from sklearn.manifold import TSNE
 from sklearn.metrics import accuracy_score, classification_report
@@ -33,39 +36,43 @@ def calc_kl(logvar, mu, reduce='mean'):
     bsize = mu.size(0)
     mu = mu.view(bsize, -1)
     logvar = logvar.view(bsize, -1)
-    kl = -0.5 * torch.sum(1 + logvar - mu**2 - logvar.exp(), dim=1)
+    kl = -0.5 * torch.sum(1 + logvar - mu ** 2 - logvar.exp(), dim=1)
 #   kl.size() == torch.Size([16])
     if reduce == 'mean':
-        kl = torch.mean(kl)
-
+        return torch.mean(-0.5*torch.sum(1+logvar - mu ** 2 - logvar.exp(), dim=1), dim=0)
+        
     elif reduce == 'sum':
         kl = torch.sum(kl)
 
     return kl
 
 
+'''
+
 def reparameterize(mu, logvar):
-    device = mu.device
+    # device = mu.device
     std = torch.exp(0.5 * logvar)
-    eps = torch.randn_like(std).to(device)
+    eps = torch.randn_like(std)
+    # eps = torch.randn_like(std).to(device)
     return mu + eps * std
 
+'''
 
 def calc_reconstruction_loss(x, recon_x, loss_type="mse", reduction='None'):
     bsize = x.size(0)
     x = x.view(bsize, -1)
-    out = recon_x.view(bsize, -1)
+    recon_x = recon_x.view(bsize, -1)
     if reduction == 'mean':
         # 平均とるよ
         # F.mse_loss(x, out, reduction='none').size              == torch.Size([16, 614,400]) {batch, 80*96*80}
         # torch.sum(F.mse_loss(x, out, reduction='none'), dim=1) == torch.Size([16]) {batch}
         # バッチごとに sum 取って 16個の値にreduction
-        mse = torch.mean(torch.sum(F.mse_loss(x, out, reduction='none'), dim=1), dim=0)
+        mse = torch.mean(torch.sum(F.mse_loss(x, recon_x, reduction='none'), dim=1), dim=0)
     #   ↑↑↑
     # 16batch の平均
     else:
         # 平均取らないよ
-        mse = torch.sum(F.mse_loss(x, out, reduction='none'), dim=1)
+        mse = torch.sum(F.mse_loss(x, recon_x, reduction='none'), dim=1)
         # torch.sum(F.mse_loss(x, out, reduction='none'), dim=1) == torch.Size([16]) {batch}
     return mse
 
@@ -78,6 +85,43 @@ def calc_reconstruction_loss(x, recon_x, loss_type="mse", reduction='None'):
     # recon_error = recon_error.mean()
 #    return recon_error
 '''
+
+# Function line up input images and output images
+
+def save_image(image, output, epoch, path, train, fakeflag):
+    fig = plt.figure(figsize=(18,6))
+    X, Y = 2, 8
+    i = 0
+    for i in range(8):
+        imgplot = i + 1
+        ax1 = fig.add_subplot(X, Y, imgplot)
+        ax1.set_title("original"+str(imgplot), fontsize=12)
+        img = np.flip(image[i].numpy().reshape(80, 96, 80).transpose(1,2,0)[50],0)
+        plt.imshow(img, cmap="gray")
+        plt.tick_params(labelsize=8)
+        
+        ax2 = fig.add_subplot(X, Y, imgplot+Y)
+        ax2.set_title("output"+str(imgplot), fontsize=12)
+        out = np.flip(output[i].numpy().reshape(80, 96, 80).transpose(1,2,0)[50],0)
+        plt.imshow(out, cmap="gray")
+        ax_pos = ax2.get_position()
+        mse_value = round(mean_squared_error(img, out), 3)
+        ssim_value = round(ssim(img, out), 3)
+        fig.text(ax_pos.x1 - 0.065, ax_pos.y1 - 0.32, " mse: " + str(mse_value), size=12)
+        fig.text(ax_pos.x1 - 0.065, ax_pos.y1 - 0.365, "ssim: " + str(ssim_value), size=12)
+        plt.tick_params(labelsize=8)
+
+    #    plt.tight_layout()
+    if train:
+        savename = f"imgs/train_rec_pic_epoch{epoch}.jpg"
+    if fakeflag:
+        savename = f"fakeimgs/train_fake_pic_epoch{epoch}.jpg"
+    if train is False:
+        savename = f"valimgs/val_rec_pic_epoch{epoch}.jpg"
+    
+    plt.savefig(path + savename)
+    plt.close()
+
 
 
 def load_model(model, pretrained, device):
@@ -135,18 +179,30 @@ def train_soft_intro_vae(
     e_scheduler = optim.lr_scheduler.MultiStepLR(optimizer_e, milestones=(350,), gamma=0.1)
     d_scheduler = optim.lr_scheduler.MultiStepLR(optimizer_d, milestones=(350,), gamma=0.1)
 
-
 #   ----------     パラメータ定義  いじるならここかなぁ     -----------
     recon_loss_type = "mse"
     beta_rec = 1.0 # beta_rec == 0.1 くらいが  cifar10 での beta_rec * loss_rec_recの値と同値になる...はず
-    beta_neg = 50.0 # bata_neg == 50.0 くらいがcifar10 での beta_neg * rec_kl_e    の値と同値になる...はず
-    beta_kl = 1.0
-    gamma_r = 1.0
+    beta_neg = 256.0 # bata_neg == 50.0 くらいがcifar10 での beta_neg * rec_kl_e    の値と同値になる...はず
+    beta_kl = 0.5
+    gamma_r = 1e-8
 
-    scale = (80) / (80 * 96 * 80)  # normalizing constant, 's' in the paper desu
+    scale = (8) / (80 * 96 * 80)  # normalizing constant, 's' in the paper desu
+    #scale = (1) / (3 * 256 * 256)
+    # 80 * 96 = 7,680
+    # 80*96*80 = 614,400
+    # 2/80*96*80  = 307,200
+    # 4/80*96*80  = 153,600
+    # 8/80*96*80  =  76,800
+    # 16/80*96*80  =  38,400
+    # 32/80*96*80  =  19,200
+    # 256 * 256 =  65,536
+    # 256*256*3 = 196,608
+    # 160 * 160 =25,600
     start_time = time.time()
 
 #    cur_iter = 0
+    model.apply(init_weights_he)
+
     train_lossE_list, train_lossD_list, val_lossE_list, val_lossD_list = [], [], [], []
     train_lossE, train_lossD, val_lossE, val_lossD = 0.0, 0.0, 0.0, 0.0
     kls_real, kls_fake, kls_rec, rec_errs = [], [], [], []
@@ -154,6 +210,15 @@ def train_soft_intro_vae(
     print(f"beta_rec = {beta_rec},  beta_neg = {beta_neg},  beta_kl = {beta_kl}, || scale = {scale:.6f}")
     print(f"training epoch:{epochs}")
     for epoch in range(start_epoch, epochs):
+        if epoch == 50 :
+            gamma_r = 1e-6
+        elif epoch == 100:
+            gamma_r = 1e-4
+        elif epoch == 150:
+            gamma_r = 1e-2
+        elif epoch == 200:
+            gamma_r = 1
+
         loop_start_time = time.time()
         diff_kls = []
         # save models
@@ -167,11 +232,13 @@ def train_soft_intro_vae(
         batch_kls_fake = []
         batch_kls_rec = []
         batch_rec_errs = []
-
+        output_cpu, output_cpu_val = [], []
+        fake_output = []
         for batch, labels in train_loader:
             #**************  training  ***************
             b_size = batch.size(0)
-            noise_batch = torch.randn(size=(b_size, 1, 5, 6, 5)).to(device)
+#            noise_batch = torch.randn(size=(b_size,1,5,6,5)).to(device)
+            noise_batch = torch.randn(size=(b_size,1,10,12,10)).to(device)
             real_batch = batch.to(device)
             # ============== Update E ================
             for param in model.encoder.parameters():
@@ -180,19 +247,22 @@ def train_soft_intro_vae(
                 param.requires_grad = False
 
             # generate 'fake' data
-            fake = model.decode(noise_batch)
+            fake = model.decode(noise_batch) # noise_batch == low dimentional expression size = (batchsize,1,5,6,5)
 
             # ELBO for real data
             real_mu, real_logvar = model.encode(real_batch)
             z = model.reparameterize(real_mu, real_logvar)
             rec = model.decode(z)
-
+            # reconstruction loss  == loss_rec  (= scaler)
             loss_rec = calc_reconstruction_loss(real_batch, rec, loss_type=recon_loss_type, reduction="mean")
             lossE_real_kl = calc_kl(real_logvar, real_mu, reduce="mean")
+            # kl-divergence == lossE_real_kl (= scaler)
+
             # {{ mu,    logvar,   z  ,    y }}を返す
             # prepare 'fake' data for expELBO
-            rec_mu, rec_logvar, z_rec, rec_rec = model(rec.detach())
-            fake_mu, fake_logvar, z_fake, rec_fake = model(fake.detach())
+            rec_mu,  rec_logvar, z_rec, rec_rec = model.forward(rec.detach())
+            fake_mu,fake_logvar,z_fake,rec_fake = model.forward(fake.detach())
+
 
             # KLD loss for the fake data
             fake_kl_e = calc_kl(fake_logvar, fake_mu, reduce="none")  # kl of fake/rec samples should be >> KL of real data
@@ -203,15 +273,12 @@ def train_soft_intro_vae(
             loss_rec_rec  = calc_reconstruction_loss(rec,  rec_rec,  loss_type=recon_loss_type, reduction="none")
 
             # expELBO
-            exp_elbo_fake = (-2 * scale * (beta_rec*loss_fake_rec + beta_neg*fake_kl_e)).exp().mean()  # loss_fake_rec は すぐ下の所で平均を取るから reduction しない
+            exp_elbo_fake = (-2 * scale * (beta_rec*loss_fake_rec + beta_neg*fake_kl_e)).exp().mean()
             exp_elbo_rec  = (-2 * scale * (beta_rec*loss_rec_rec  + beta_neg*rec_kl_e )).exp().mean()
-            # ===== encoder total loss ======
-            # print(f"beta_rec : fake_kl_e / rec_kl_e == {fake_kl_e/rec_kl_e}")  この値は基本的に " 1 " 前後の値になった
-#            print(f" scale * (beta_rec*loss_rec + beta_kl*lossE_real_kl){scale * (beta_rec*loss_rec + beta_kl*lossE_real_kl)}+ 0.25*(exp_elbo_fake+exp_elbo_rec){0.25*(exp_elbo_fake+exp_elbo_rec)}")
 
-#           lossE     = 1 * (beta_rec*loss_rec + beta_kl*lossE_real_kl)+0.25*(exp_elbo_fake+exp_elbo_rec)
-#           lossE    =scale*(beta_rec*loss_rec + beta_kl*lossE_real_kl)+0.25*(exp_elbo_fake+exp_elbo_rec)
-            lossE = scale * (beta_rec*loss_rec + beta_kl*lossE_real_kl) + 0 *(exp_elbo_fake+exp_elbo_rec)
+            # ===== encoder total loss ======
+            lossE  = scale*(beta_rec*loss_rec + beta_kl*lossE_real_kl) + 0.25*(exp_elbo_fake+exp_elbo_rec)
+            #lossE = scale * (beta_rec*loss_rec + beta_kl*lossE_real_kl) + 0 *(exp_elbo_fake+exp_elbo_rec)
             # backprop part of encoder
             optimizer_e.zero_grad()
             lossE.backward()
@@ -224,17 +291,19 @@ def train_soft_intro_vae(
             for param in model.decoder.parameters():
                 param.requires_grad = True
             # generate 'fake' data
+
             fake = model.decode(noise_batch)
             rec  = model.decode(z.detach())
+            
             # ELBO loss for real -- just the reconstruction, KLD for real doesn't affect the decoder
-            loss_rec = calc_reconstruction_loss(real_batch, rec.detach(), loss_type=recon_loss_type, reduction="mean")
+            loss_rec = calc_reconstruction_loss(real_batch, rec, loss_type=recon_loss_type, reduction="mean")
             
             # prepare 'fake' data for the ELBO
             rec_mu, rec_logvar = model.encode(rec)
-            z_rec = reparameterize(rec_mu, rec_logvar)
+            z_rec = model.reparameterize(rec_mu, rec_logvar)
 
             fake_mu, fake_logvar = model.encode(fake)
-            z_fake = reparameterize(fake_mu, fake_logvar)
+            z_fake = model.reparameterize(fake_mu, fake_logvar)
 
             rec_rec  = model.decode(z_rec.detach())
             rec_fake = model.decode(z_fake.detach())
@@ -245,8 +314,8 @@ def train_soft_intro_vae(
             rec_kl  = calc_kl(rec_logvar,  rec_mu,  reduce="mean")
             fake_kl = calc_kl(fake_logvar, fake_mu, reduce="mean")
 
-            # lossD = scale * (loss_rec*beta_rec + (rec_kl+fake_kl)*0.5*beta_kl + gamma_r*0.5*beta_rec*(loss_rec_rec+loss_fake_rec))
-            lossD = scale * (loss_rec*beta_rec + rec_kl*beta_kl) + 0 * ((rec_kl+fake_kl)*0.5*beta_kl + gamma_r*0.5*beta_rec*(loss_rec_rec+loss_fake_rec))
+            lossD = scale * (loss_rec*beta_rec + 0.5*beta_kl*(rec_kl+fake_kl) + gamma_r*0.5*beta_rec*(loss_rec_rec+loss_fake_rec))
+            # lossD = scale * (loss_rec*beta_rec + rec_kl*beta_kl) + 0 * ((rec_kl+fake_kl)*0.5*beta_kl + gamma_r*0.5*beta_rec*(loss_rec_rec+loss_fake_rec))
 
             optimizer_d.zero_grad()
             lossD.backward()
@@ -265,8 +334,8 @@ def train_soft_intro_vae(
         # print(f"value of train_loader.dataset:{len(train_loader.dataset)}")
         # print(f"value of train_loader:{len(train_loader)}")
 
-        print(f"scale * (beta_rec * loss_rec + beta_kl * lossE_real_kl)=={scale*(beta_rec*loss_rec+beta_kl*lossE_real_kl):.4f} \
-             0.25 * (exp_elbo_fake + exp_elbo_rec)=={0.25*(exp_elbo_fake+exp_elbo_rec):.4f}")
+        print(f"scale * (beta_rec * loss_rec + beta_kl * lossE_real_kl)=={scale*(beta_rec*loss_rec+beta_kl*lossE_real_kl):.4f}", end="\n\n")
+#             0.25 * (exp_elbo_fake + exp_elbo_rec)=={0.25*(exp_elbo_fake+exp_elbo_rec):.4f}")
 
         train_lossE /= len(train_loader)  # train_lossE /= len(train_loader.dataset)
         train_lossD /= len(train_loader)
@@ -279,15 +348,23 @@ def train_soft_intro_vae(
         info += f'Kl_F:{rec_kl.data.cpu():.4f}, KL_R:{ fake_kl.data.cpu():.4f}, '
         info += f'DIFF_Kl_F:{(-lossE_real_kl.data.cpu() + fake_kl.data.cpu()):.4f}'
         print(info)
+        
+        for out in rec:
+            output_cpu.append(out.detach().cpu())
+        save_image(batch, output_cpu, epoch, path, train=True, fakeflag=False)
+
+        for out in fake:
+            fake_output.append(out.detach().cpu())
+        save_image(batch, fake_output, epoch, path, train=False, fakeflag=True)
 
         #_, _, _, rec_det = model(real_batch)
 
         model.eval()
         with torch.no_grad():
-            for batch, labels in train_loader:
-                #####
+            for batch, labels in val_loader:
                 b_size = batch.size(0)
-                noise_batch = torch.randn(size=(b_size, 1, 5, 6, 5)).to(device)
+                # noise_batch = torch.randn(size=(b_size,1,5,6,5)).to(device)
+                noise_batch = torch.randn(size=(b_size,1,10,12,10)).to(device)
                 real_batch = batch.to(device)
                 # ============================ Encoder ===============================
                 fake = model.decode(noise_batch)
@@ -298,8 +375,8 @@ def train_soft_intro_vae(
                 loss_rec = calc_reconstruction_loss(real_batch, rec, loss_type=recon_loss_type, reduction="mean")
                 lossE_real_kl = calc_kl(real_logvar, real_mu, reduce="mean")
 
-                rec_mu,   rec_logvar,  z_rec, rec_rec  = model(rec.detach())
-                fake_mu, fake_logvar, z_fake, rec_fake = model(fake.detach())
+                rec_mu,   rec_logvar,  z_rec, rec_rec  = model.forward(rec.detach())
+                fake_mu, fake_logvar, z_fake, rec_fake = model.forward(fake.detach())
 
                 fake_kl_e = calc_kl(fake_logvar, fake_mu, reduce="none")
                 rec_kl_e  = calc_kl(rec_logvar,   rec_mu, reduce="none")
@@ -307,10 +384,11 @@ def train_soft_intro_vae(
                 loss_fake_rec = calc_reconstruction_loss(fake, rec_fake, loss_type=recon_loss_type, reduction="none")
                 loss_rec_rec  = calc_reconstruction_loss(rec,  rec_rec,  loss_type=recon_loss_type, reduction="none")
 
-                exp_elbo_fake = (-2 * scale * (beta_rec * loss_fake_rec + beta_neg * fake_kl_e)).exp().mean()
+                exp_elbo_fake = (-2 * scale * (beta_rec * loss_fake_rec+ beta_neg *fake_kl_e)).exp().mean()
                 exp_elbo_rec  = (-2 * scale * (beta_rec * loss_rec_rec + beta_neg * rec_kl_e)).exp().mean()
                 # total loss
                 lossE = scale * (beta_rec*loss_rec + beta_kl*lossE_real_kl) + 0.25*(exp_elbo_fake+exp_elbo_rec)
+                val_lossE += lossE.item()
                 # backprop
                 # ============================ Decoder ==============================
                 # fake = model.decode(noise_batch)
@@ -318,10 +396,10 @@ def train_soft_intro_vae(
                 loss_rec = calc_reconstruction_loss(real_batch, rec.detach(), loss_type=recon_loss_type, reduction="mean")
 
                 rec_mu, rec_logvar = model.encode(rec)
-                z_rec = reparameterize(rec_mu, rec_logvar)
+                z_rec = model.reparameterize(rec_mu, rec_logvar)
 
                 fake_mu, fake_logvar = model.encode(fake)
-                z_fake = reparameterize(fake_mu, fake_logvar)
+                z_fake = model.reparameterize(fake_mu, fake_logvar)
 
                 rec_rec  = model.decode(z_rec)
                 rec_fake = model.decode(z_fake)
@@ -332,8 +410,12 @@ def train_soft_intro_vae(
                 rec_kl  = calc_kl(rec_logvar, rec_mu, reduce="mean")
                 fake_kl = calc_kl(fake_logvar, fake_mu, reduce="mean")
 
-                lossD = scale * (loss_rec*beta_rec + (rec_kl+fake_kl)*0.5*beta_kl + gamma_r*0.5*beta_rec*(loss_rec_rec+loss_fake_rec))
+                lossD = scale * (loss_rec*beta_rec + 0.5*beta_kl*(rec_kl+fake_kl) + gamma_r*0.5*beta_rec*(loss_rec_rec+loss_fake_rec))
                 val_lossD += lossD.item()
+
+            for out in rec:
+                output_cpu_val.append(out.detach().cpu())
+                save_image(batch, output_cpu_val, epoch, path, train=False, fakeflag=False)
 
 
             val_lossE /= len(val_loader)
@@ -345,18 +427,20 @@ def train_soft_intro_vae(
         # vutils.save_image(
         #         torch.cat([real_batch[:max_imgs], rec_det[:max_imgs], fake[:max_imgs]], dim=0).data.cpu(),
         #         '{}/image_{}.jpg'.format("./", cur_iter), nrow=num_row)
-        #cur_iter += 1
+        # cur_iter += 1
+        # for out in rec:
+        #     output_cpu_val.append(out.detach().cpu())
+        # save_image(batch, output_cpu_val, epoch, path, train=False)
+
         kls_real.append(np.mean(batch_kls_real))
         kls_fake.append(np.mean(batch_kls_fake))
         kls_rec.append(np.mean(batch_kls_rec))
         rec_errs.append(np.mean(batch_rec_errs))
-        # beta_rec = 10.0
-        # beta_neg = 1
-        # beta_kl = 0.05
-        # gamma_r = 1
-        savename = f"VAEtoS-IntroVAE_4184_epoch{epoch}.pth"
+
+        savename = f"S-IntroVAE_4184_epoch{epoch}.pth"
+        savename = path + savename
     #   torch.save(model.state_dict(), file_path)
-        torch.save(model.state_dict(), path + savename)
+        torch.save(model.state_dict(), savename)
         # path == ... _VAEtoSoftVAE_fixed_seed/rec1_ng300_kl1_gamma1/
 #       torch.save(model.state_dict(), log_path + f"softintroVAE_weight_epoch{str(epoch)}.pth")
 
@@ -512,6 +596,112 @@ def train_ResNetVAE(
     print("finished ResNetVAE traininig.")
     return train_losses, val_losses
 # --------------------------------------------------------------------------------#
+
+
+def train_ResNetVAE_sepa(
+    net,
+    train_loader,
+    val_loader,
+    epochs=1,
+    lr=0.001,
+    device=torch.device("cpu"),
+    path="./output_ResNetVAE/",
+):
+    path2 = path + "train_result.csv"
+    with open(path2, "w") as f:
+        writer = csv.writer(f)
+        writer.writerow(["epoch", "train_loss", "val_loss"])
+
+    optimizer = optim.Adam(net.parameters(), lr)
+    optimizer_e = optim.Adam(net.encoder.parameters(), lr=lr) # lr=2e-4
+    optimizer_d = optim.Adam(net.decoder.parameters(), lr=lr) # lr=2e-4
+
+    print(optimizer)
+    #net = torch.nn.DataParallel(net, device_ids=[0, 1, 2, 3])
+
+    net.to(device)
+    net.apply(init_weights_he)
+    train_losses, val_losses = [], []
+    train_mse_losses, train_kl_losses = [], []
+    start_time = time.time()
+    for epoch in range(epochs):
+        loop_start_time = time.time()
+        train_run_mse = 0.0
+        train_run_kl = 0.0
+        train_run_loss = 0.0
+        net.train()
+        for inputs, labels in train_loader:
+            inputs = inputs.to(device)
+            optimizer.zero_grad()
+            optimizer_e.zero_grad()
+            optimizer_d.zero_grad()
+            x_re, mu, logvar = net.forward(inputs) #  forward:  return x_re, mu, logvar
+            loss, mse, kl = lossf.normal_loss(x_re, mu, logvar, inputs)
+            lossE = (mse + kl)
+            # backprop part of encoder
+            optimizer_e.zero_grad()
+            lossE.backward()
+            optimizer_e.step()
+
+            loss.backward()
+            optimizer.step()
+            train_run_loss += loss.item()
+            train_run_mse += mse.item()
+            train_run_kl += kl.item()
+#____________________________________________________#
+        train_run_loss /= len(train_loader)
+        train_run_mse /= len(train_loader)
+        train_run_kl /= len(train_loader)
+        train_losses.append(train_run_loss)
+        train_mse_losses.append(train_run_mse)
+        train_kl_losses.append(train_run_kl)
+# __________________________________________________________________________________ #
+
+        net.eval()
+        val_run_loss = 0.0
+        val_run_mse = 0.0
+        val_run_kl = 0.0
+        with torch.no_grad():
+            for inputs, labels in val_loader:
+                inputs = inputs.to(device)
+                x_re, mu, logvar = net.forward(inputs)
+                loss, mse, kl = lossf.normal_loss(x_re, mu, logvar, inputs)
+                val_run_loss += loss.item()
+                val_run_mse += mse.item()
+                val_run_kl += kl.item()
+            val_run_loss /= len(val_loader)
+            val_run_mse /= len(val_loader)
+            val_run_kl /= len(val_loader)
+
+        val_run_loss /= len(val_loader)
+        val_losses.append(val_run_loss)
+
+        if epoch % 10 == 0:
+            savename = f"ResNetVAE_4184epoch{epoch}.pth"
+        #   torch.save(model.state_dict(), file_path)
+            torch.save(net.state_dict(), path + savename)
+    #       torch.save(model.state_dict(), log_path + f"softintroVAE_weight_epoch{str(epoch)}.pth")
+
+        now_time = time.time()
+        print(f"Epoch [{epoch+1}/{epochs}] train_loss:{train_run_loss:.3f}  val_loss:{val_run_loss:.3f} "
+              f" 1epoch:{(now_time - loop_start_time):.1f}秒  total time:{(now_time - start_time):.1f}秒")
+
+
+
+        write_figres(path + "/loss.txt", train_losses, val_losses)
+        write_kl_losses_onlyvae(path + "/kllosses.txt", train_mse_losses, train_kl_losses)
+        # write_fig(path + "/mse.txt",train_losses_mse,val_losses_mse)
+        # write_fig(path + "/kl.txt",train_losses_kl,val_losses_kl)
+
+    if epochs != 0:
+        torch.save(net.state_dict(), path + "resnetvae_weight.pth")
+        print("saved ResNetVAE param and ", end="") # これで改行しない
+
+    print("finished ResNetVAE traininig.")
+    return train_losses, val_losses
+
+
+
 
 
 # trainer for ResCAE
