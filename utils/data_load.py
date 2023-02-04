@@ -7,6 +7,10 @@ from torch.utils.data import Dataset
 class BrainDataset(Dataset):
     def __init__(self, voxels, labels, transform=None):
         self.voxels = voxels
+     #  self.voxels = [self._preprocess(data) for data in voxels]
+#       self.voxels = [self._preprocess(data["voxel"]) for data in voxels]
+#       self.voxels = [self._preprocess(v) for v in voxels]
+#       self.voxels = [self._preprocess(data["voxel"]) for data in self.data]
         self.labels = labels
         self.transform = transform
     def __len__(self):
@@ -28,5 +32,9 @@ class BrainDataset(Dataset):
         return self.__getitem__(index)
 
 
+#                         ""min → floor""  "" max → ceil ""
 def normalize(voxel: np.ndarray, floor: int, ceil: int) -> np.ndarray:
     return (voxel - floor) / (ceil - floor)
+    # voxel - min
+    # -----------
+    # max   - min
