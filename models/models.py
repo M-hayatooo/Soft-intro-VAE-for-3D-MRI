@@ -9,7 +9,8 @@ class BuildingBlock(nn.Module):
     def __init__(self, in_ch, out_ch, stride, bias=False):
         super(BuildingBlock, self).__init__()
         self.res = stride == 1
-        self.shortcut = self._shortcut()
+#        self.shortcut = self._shortcut()
+        self.shortcut = self._shortcut(in_ch, out_ch)
         self.relu = nn.LeakyReLU(0.2, inplace=True) # nn.ReLU(inplace=True)
         self.block = nn.Sequential(
             nn.Conv3d(in_ch, out_ch, kernel_size=3, stride=1, padding=1, bias=bias),
@@ -20,8 +21,18 @@ class BuildingBlock(nn.Module):
             nn.BatchNorm3d(out_ch),
         )
 
-    def _shortcut(self):
-        return lambda x: x
+    # def _shortcut(self):
+    #     return lambda x: x
+
+    def _shortcut(self, in_ch, out_ch):
+        if in_ch != out_ch:
+            return self._projection(in_ch, out_ch)
+        else:
+            return lambda x: x
+
+    def _projection(self, channel_in, channel_out):
+        return nn.Conv3d(channel_in, channel_out, kernel_size=1, stride=1, padding=0)
+
 
     def forward(self, x):
         if self.res:
@@ -35,7 +46,8 @@ class UpsampleBuildingkBlock(nn.Module):
     def __init__(self, in_ch, out_ch, stride, bias=False):
         super(UpsampleBuildingkBlock, self).__init__()
         self.res = stride == 1
-        self.shortcut = self._shortcut()
+        # self.shortcut = self._shortcut()
+        self.shortcut = self._shortcut(in_ch, out_ch)
         self.relu = nn.LeakyReLU(0.2, inplace=True) # nn.ReLU(inplace=True)
         self.block = nn.Sequential(
             nn.Conv3d(in_ch, in_ch, kernel_size=3, stride=1, padding=1, bias=bias),
@@ -46,8 +58,17 @@ class UpsampleBuildingkBlock(nn.Module):
             nn.BatchNorm3d(out_ch),
         )
 
-    def _shortcut(self):
-        return lambda x: x
+    # def _shortcut(self):
+    #     return lambda x: x
+
+    def _shortcut(self, in_ch, out_ch):
+        if in_ch != out_ch:
+            return self._projection(in_ch, out_ch)
+        else:
+            return lambda x: x
+
+    def _projection(self, channel_in, channel_out):
+        return nn.Conv3d(channel_in, channel_out, kernel_size=1, stride=1, padding=0)
 
     def forward(self, x):
         if self.res:
@@ -90,7 +111,8 @@ class ResNetDecoder(nn.Module):
             blocks = [nn.Sequential(
                 nn.Conv3d(1, last, 1, 1, bias=True),
                 nn.BatchNorm3d(last),
-                nn.LeakyReLU(0.2, inplace=True), # nn.ReLU(inplace=True),
+                # nn.ReLU(inplace=True), # decoderの最初だけSoft-IntroVAEの論文ではReLU関数だったが，線形を活性化させてたから構造が違う...
+                nn.LeakyReLU(0.2, inplace=True),
             )]
         in_ch = last
         for i in range(len(encoder.block_setting)):
@@ -106,7 +128,8 @@ class ResNetDecoder(nn.Module):
                 in_ch = c
         blocks.append(nn.Sequential(
             nn.Conv3d(in_ch, 1, kernel_size=3, stride=1, padding=1, bias=True),
-            nn.LeakyReLU(0.2),
+            # nn.LeakyReLU(0.2),
+            nn.ReLU(),
         ))
         self.blocks = nn.Sequential(*blocks)
 
@@ -216,6 +239,12 @@ class ResNetVAE(BaseVAE):
 #        re_err = self.Rmse(x_re, x)
 #        kld = -0.5 * torch.sum(1 + logvar - mu**2 - logvar.exp())
 #        return re_err + kld
+
+#   _________________________
+#    """""原論文において"""""
+#   ￣￣￣￣￣￣￣￣￣￣￣￣￣￣
+#  Soft-IntroVAE は Encoder (Discriminator)ではLeakyReLU()
+#                は Decoder (Generator)    では 最初だけ ReLU() を使用
 
 class SoftIntroVAE(nn.Module):
     def __init__(self, in_ch, block_setting) -> None:
