@@ -33,6 +33,7 @@ from utils.data_load import BrainDataset
 CLASS_MAP = {"CN": 0, "AD": 1, "EMCI":2, "LMCI":3, "SMC":4, "MCI":5}
 SEED_VALUE = 82
 
+
 def parser():
     parser = argparse.ArgumentParser(description="example")
     parser.add_argument("--model", type=str, default="ResNetVAE")
@@ -138,7 +139,7 @@ def main():
         print("net: ResNetVAE") # ------------------------------------- #
     elif args.model == "SoftIntroVAE":
         net = models.SoftIntroVAE(12, [[12,1,2],[24,1,2],[32,2,2],[48,2,2]])
-        log_path = "./logs/" + args.log + "_SoftIntroVAE/only_VAE1/"
+        log_path = "./logs/" + args.log + "_SoftIntroVAE/only_VAE2/"
         print("net: SoftIntroVAE") # ------------------------------------- #
     elif args.model == "VAEtoSoftVAE":
         resnet = models.ResNetVAE(12, [[12,1,2],[24,1,2],[32,2,2],[48,2,2]])
