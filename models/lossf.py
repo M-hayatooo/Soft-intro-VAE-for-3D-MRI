@@ -7,6 +7,8 @@ def mse_loss(out, x):
     x = x.view(bsize, -1)
     out = out.view(bsize, -1)
     mse = torch.mean(torch.sum(F.mse_loss(x, out, reduction='none'), dim=1), dim=0)
+    # mse = torch.mean(torch.sum(F.mse_loss(x, out, reduction='none'), dim=1), dim=0)
+    # mse = torch.mean(torch.sum(F.mse_loss(x, out, reduction='none'), dim=1), dim=0)
     return mse
 
 def kld_loss(mu, logvar):
@@ -15,7 +17,7 @@ def kld_loss(mu, logvar):
     logvar = logvar.view(bsize, -1)
     return torch.mean(-0.5 * torch.sum(1 + logvar - mu ** 2 - logvar.exp(), dim=1), dim=0)
 
-def normal_loss(x_hat, mu, logvar, x, msew=1, kldw=1):
+def normal_loss(x_hat, mu, logvar, x, msew=1, kldw=10):
     mse = mse_loss(x_hat, x) * msew
     kld = kld_loss(mu, logvar) * kldw
     loss = mse + kld
