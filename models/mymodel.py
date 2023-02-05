@@ -1,141 +1,6 @@
-from typing import List
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
-
-class BuildingBlock(nn.Module):
-    def __init__(self, in_ch, out_ch, stride, bias=False):
-        super(BuildingBlock, self).__init__()
-        self.res = stride == 1
-#        self.shortcut = self._shortcut()
-        self.shortcut = self._shortcut(in_ch, out_ch)
-        self.relu = nn.LeakyReLU(0.2, inplace=True) # nn.ReLU(inplace=True)
-        self.block = nn.Sequential(
-            nn.Conv3d(in_ch, out_ch, kernel_size=3, stride=1, padding=1, bias=bias),
-            nn.BatchNorm3d(out_ch),
-            nn.LeakyReLU(0.2, inplace=True), #nn.ReLU(inplace=True),
-            nn.AvgPool3d(kernel_size=stride),
-            nn.Conv3d(out_ch, out_ch, kernel_size=3, stride=1, padding=1, bias=bias),
-            nn.BatchNorm3d(out_ch),
-        )
-
-    # def _shortcut(self):
-    #     return lambda x: x
-
-    def _shortcut(self, in_ch, out_ch):
-        if in_ch != out_ch:
-            return self._projection(in_ch, out_ch)
-        else:
-            return lambda x: x
-
-    def _projection(self, channel_in, channel_out):
-        return nn.Conv3d(channel_in, channel_out, kernel_size=1, stride=1, padding=0)
-
-
-    def forward(self, x):
-        if self.res:
-            shortcut = self.shortcut(x)
-            return self.relu(self.block(x) + shortcut)
-        else:
-            return self.relu(self.block(x))
-
-
-class UpsampleBuildingkBlock(nn.Module):
-    def __init__(self, in_ch, out_ch, stride, bias=False):
-        super(UpsampleBuildingkBlock, self).__init__()
-        self.res = stride == 1
-        # self.shortcut = self._shortcut()
-        self.shortcut = self._shortcut(in_ch, out_ch)
-        self.relu = nn.LeakyReLU(0.2, inplace=True) # nn.ReLU(inplace=True)
-        self.block = nn.Sequential(
-            nn.Conv3d(in_ch, in_ch, kernel_size=3, stride=1, padding=1, bias=bias),
-            nn.BatchNorm3d(in_ch),
-            nn.LeakyReLU(0.2, inplace=True), # nn.ReLU(inplace=True),
-            nn.Upsample(scale_factor=stride),
-            nn.Conv3d(in_ch, out_ch, kernel_size=3, stride=1, padding=1, bias=bias),
-            nn.BatchNorm3d(out_ch),
-        )
-
-    # def _shortcut(self):
-    #     return lambda x: x
-
-    def _shortcut(self, in_ch, out_ch):
-        if in_ch != out_ch:
-            return self._projection(in_ch, out_ch)
-        else:
-            return lambda x: x
-
-    def _projection(self, channel_in, channel_out):
-        return nn.Conv3d(channel_in, channel_out, kernel_size=1, stride=1, padding=0)
-
-    def forward(self, x):
-        if self.res:
-            shortcut = self.shortcut(x)
-            return self.relu(self.block(x) + shortcut)
-        else:
-            return self.relu(self.block(x))
-
-
-class ResNetEncoder(nn.Module):
-    def __init__(self, in_ch, block_setting):
-        super(ResNetEncoder, self).__init__()
-        self.block_setting = block_setting
-        self.in_ch = in_ch
-        last = 1
-        blocks = [nn.Sequential(
-            nn.Conv3d(1, in_ch, kernel_size=3, stride=1, padding=1, bias=True),
-            nn.BatchNorm3d(in_ch),
-            nn.LeakyReLU(0.2, inplace=True), # nn.ReLU(inplace=True),
-        )]
-        for line in self.block_setting:
-            c, n, s = line[0], line[1], line[2]
-            for i in range(n):
-                stride = s if i == 0 else 1
-                blocks.append(nn.Sequential(BuildingBlock(in_ch, c, stride)))
-                in_ch = c
-        self.inner_ch = in_ch
-        self.blocks = nn.Sequential(*blocks)
-        self.conv = nn.Sequential(nn.Conv3d(in_ch, last, kernel_size=1, stride=1, bias=True))
-        self.fc = nn.Linear(in_ch, last)
-        #全結合層 (fully-connected Layer
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        h = self.blocks(x)
-        return self.fc(h)
-
-class ResNetDecoder(nn.Module):
-    def __init__(self, encoder: ResNetEncoder, blocks=None):
-        super(ResNetDecoder, self).__init__()
-        last = encoder.block_setting[-1][0]
-        if blocks is None:
-            blocks = [nn.Sequential(
-                nn.Conv3d(1, last, 1, 1, bias=True),
-                nn.BatchNorm3d(last),
-                # nn.ReLU(inplace=True), # decoderの最初だけSoft-IntroVAEの論文ではReLU関数だったが，線形を活性化させてたから構造が違う...
-                nn.LeakyReLU(0.2, inplace=True),
-            )]
-        in_ch = last
-        for i in range(len(encoder.block_setting)):
-            if i == len(encoder.block_setting) - 1:
-                nc = encoder.in_ch
-            else:
-                nc = encoder.block_setting[::-1][i + 1][0]
-            c, n, s = encoder.block_setting[::-1][i]
-            for j in range(n):
-                stride = s if j == n - 1 else 1
-                c = nc if j == n - 1 else c
-                blocks.append(nn.Sequential(UpsampleBuildingkBlock(in_ch, c, stride)))
-                in_ch = c
-        blocks.append(nn.Sequential(
-            nn.Conv3d(in_ch, 1, kernel_size=3, stride=1, padding=1, bias=True),
-            # nn.LeakyReLU(0.2),
-            nn.ReLU(),
-        ))
-        self.blocks = nn.Sequential(*blocks)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.blocks(x)
 
 
 class BaseEncoder(nn.Module):
@@ -161,26 +26,6 @@ class BaseCAE(nn.Module):
         out = self.decode(z)
         return out, z
 
-
-class ResNetCAE(BaseCAE):
-    def __init__(self, in_ch, block_setting) -> None:
-        super(ResNetCAE, self).__init__()
-        self.encoder = ResNetEncoder(
-            in_ch=in_ch,
-            block_setting=block_setting,
-        )
-        self.decoder = ResNetDecoder(self.encoder)
-
-    def forward(self, x):
-        x = self.encoder(x)
-        x = self.decoder(x)
-        return x
-
-    def __call__(self, x):
-        x = self.forward(x)
-        return x
-
-
 class BaseVAE(nn.Module):
     def __init__(self) -> None:
         super(BaseVAE, self).__init__()
@@ -203,24 +48,187 @@ class BaseVAE(nn.Module):
         return x_hat, vec, mu, logvar
 
 
-class VAEResNetEncoder(ResNetEncoder):
-    def __init__(self, in_ch, block_setting) -> None:
-        super(VAEResNetEncoder, self).__init__(in_ch, block_setting)
-        self.mu = nn.Conv3d(self.inner_ch, 1, kernel_size=1, stride=1, bias=True)
-        self.var = nn.Conv3d(self.inner_ch, 1, kernel_size=1, stride=1, bias=True)
+class ResNetVAEencoder(nn.Module): # first_ch=16 second_ch=32 third_ch=64 forth_ch=128
+    def __init__(self, first_ch, second_ch, third_ch, forth_ch, z_ch):
+        super(ResNetVAEencoder, self).__init__()
+        self.block1 = nn.Sequential(
+            nn.Conv3d(1, first_ch, kernel_size=3, stride=1, padding=1, bias=True),
+            nn.BatchNorm3d(first_ch),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv3d(first_ch, first_ch, kernel_size=3, stride=1, padding=1, bias=True),
+            nn.BatchNorm3d(first_ch),
+            nn.LeakyReLU(0.2, inplace=True),
+        ) # here excurt pooling
+        self.block2 = nn.Sequential(
+            nn.Conv3d(first_ch, first_ch, kernel_size=3, stride=1, padding=1, bias=True),
+            nn.BatchNorm3d(first_ch),
+            nn.LeakyReLU(0.2, inplace=True),
+            # this phase channel up
+            nn.Conv3d(first_ch, second_ch, kernel_size=3, stride=1, padding=1, bias=True),
+            nn.BatchNorm3d(second_ch),
+            nn.LeakyReLU(0.2, inplace=True),
+        ) # here excurt pooling
+        self.block3 = nn.Sequential(
+            nn.Conv3d(second_ch, second_ch, kernel_size=3, stride=1, padding=1, bias=True),
+            nn.BatchNorm3d(second_ch),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv3d(second_ch, third_ch, kernel_size=3, stride=1, padding=1, bias=True),
+            nn.BatchNorm3d(third_ch),
+            nn.LeakyReLU(0.2, inplace=True),
+        ) ######## here excurt pooling ########
+        self.block4short = nn.Sequential(
+            nn.Conv3d(third_ch, third_ch, kernel_size=3, stride=1, padding=1, bias=True),
+            nn.BatchNorm3d(third_ch),
+            nn.LeakyReLU(0.2, inplace=True),
+        )
+        self.block5 = nn.Sequential(
+            nn.Conv3d(third_ch, third_ch, kernel_size=3, stride=1, padding=1, bias=True),
+            nn.BatchNorm3d(third_ch),
+            nn.LeakyReLU(0.2, inplace=True),
+            # nn.LeakyReLU(0.2, inplace=True), ここでスキップコネクション
+        )
+        self.block6 = nn.Sequential(
+            nn.Conv3d(third_ch, third_ch, kernel_size=3, stride=1, padding=1, bias=True),
+            nn.BatchNorm3d(third_ch),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.AvgPool3d(kernel_size=2),
+            nn.Conv3d(third_ch, forth_ch, kernel_size=3, stride=1, padding=1, bias=True),
+            nn.BatchNorm3d(forth_ch),
+            nn.LeakyReLU(0.2, inplace=True),
+        )
+        self.block7 = nn.Sequential(
+            nn.Conv3d(forth_ch, forth_ch, kernel_size=3, stride=1, padding=1, bias=True),
+            nn.BatchNorm3d(forth_ch),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv3d(forth_ch, forth_ch, kernel_size=3, stride=1, padding=1, bias=True),
+            nn.BatchNorm3d(forth_ch),
+            # nn.LeakyReLU(0.2, inplace=True),
+        )
+        self.block8 = nn.Sequential(
+            nn.Conv3d(third_ch, third_ch, kernel_size=3, stride=1, padding=1, bias=True),
+            nn.BatchNorm3d(third_ch),
+            nn.LeakyReLU(0.2, inplace=True),
+            # this phase channel up
+            nn.Conv3d(third_ch, forth_ch, kernel_size=3, stride=1, padding=1, bias=True),
+            nn.BatchNorm3d(forth_ch),
+            nn.LeakyReLU(0.2, inplace=True),
+        )
+        
+        self.pool1 = nn.AvgPool3d(kernel_size=2)
+        self.pool2 = nn.AvgPool3d(kernel_size=2)
+        self.pool3 = nn.AvgPool3d(kernel_size=2)
+        self.pool4 = nn.AvgPool3d(kernel_size=2)
+        self.Leakyrelu5 = nn.LeakyReLU(0.2, inplace=True)
+        self.Leakyrelu7 = nn.LeakyReLU(0.2, inplace=True)
+        # self.relu = nn.ReLU()
+        self.fc = nn.Linear(forth_ch*5*6*5, z_ch*2)
+        
+    def forward(self, x):
+        x = self.block1(x)
+        x = self.pool1(x) # Avgpooling  40
+        x = self.block2(x) #32
+        x = self.pool2(x) # Avgpooling  20
+        x = self.block3(x)# 64
+        x = self.pool3(x) # Avgpooling  10
+        x = self.block4short(x) # 128
+        h = self.block5(x) ###  skip  ###
+        x = self.Leakyrelu5(x+h) # here add
+        x = self.block6(x)  #  ここでavgpoolしてる "5*6*5"
+        h = self.block7(x) # conv→relu→conv
+        x = self.Leakyrelu7(x+h) # here skip connection
+        x = x.view(x.size(0), -1)
+        x = self.fc(x)
+        mu, logvar = x.chunk(2, dim=1)
+        return mu, logvar
 
-    def forward(self, x: torch.Tensor):
-        h = self.blocks(x)
-        mu = self.mu(h)
-        var = self.var(h)
-        return mu, var
+
+class ResNetDecoder(nn.Module):
+    def __init__(self, first_ch, second_ch, third_ch, forth_ch, z_ch):
+        super(ResNetDecoder, self).__init__()
+        self.dfc = nn.Sequential(
+            nn.Linear(z_ch, forth_ch*5*6*5),
+            nn.ReLU(True),
+        )
+        self.block1 = nn.Sequential(
+            nn.Conv3d(forth_ch, forth_ch, kernel_size=3, stride=1, padding=1, bias=True),
+            nn.BatchNorm3d(forth_ch),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv3d(forth_ch, forth_ch, kernel_size=3, stride=1, padding=1, bias=True),
+            nn.BatchNorm3d(forth_ch),
+            # nn.LeakyReLU(0.2, inplace=True),
+        )
+        self.block2u = nn.Sequential(
+            nn.Conv3d(forth_ch, forth_ch, kernel_size=3, stride=1, padding=1, bias=True),
+            nn.BatchNorm3d(forth_ch),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Upsample(scale_factor=2,mode="trilinear"),
+            nn.Conv3d(forth_ch, third_ch, kernel_size=3, stride=1, padding=1, bias=True),
+            nn.BatchNorm3d(third_ch),
+            nn.LeakyReLU(0.2, inplace=True),
+        )
+        self.block3 = nn.Sequential(
+            nn.Conv3d(third_ch, third_ch, kernel_size=3, stride=1, padding=1, bias=True),
+            nn.BatchNorm3d(third_ch),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv3d(third_ch, third_ch, kernel_size=3, stride=1, padding=1, bias=True),
+            nn.BatchNorm3d(third_ch),
+            # nn.LeakyReLU(0.2, inplace=True),
+        )
+        self.block4u = nn.Sequential(
+            nn.Conv3d(third_ch, third_ch, kernel_size=3, stride=1, padding=1, bias=True),
+            nn.BatchNorm3d(third_ch),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Upsample(scale_factor=2,mode="trilinear"),
+            nn.Conv3d(third_ch, second_ch, kernel_size=3, stride=1, padding=1, bias=True),
+            nn.BatchNorm3d(second_ch),
+            nn.LeakyReLU(0.2, inplace=True),
+        )
+        self.block5u = nn.Sequential(
+            nn.Conv3d(second_ch, second_ch, kernel_size=3, stride=1, padding=1, bias=True),
+            nn.BatchNorm3d(second_ch),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Upsample(scale_factor=2,mode="trilinear"),
+            nn.Conv3d(second_ch, first_ch, kernel_size=3, stride=1, padding=1, bias=True),
+            nn.BatchNorm3d(first_ch),
+            nn.LeakyReLU(0.2, inplace=True),
+        )
+        self.block6u = nn.Sequential(
+            nn.Conv3d(first_ch, first_ch, kernel_size=3, stride=1, padding=1, bias=True),
+            nn.BatchNorm3d(first_ch),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Upsample(scale_factor=2,mode="trilinear"),
+            nn.Conv3d(first_ch, first_ch, kernel_size=3, stride=1, padding=1, bias=True),
+            nn.BatchNorm3d(first_ch),
+            nn.LeakyReLU(0.2, inplace=True),
+        )
+        self.last_block = nn.Sequential(
+            nn.Conv3d(first_ch, 1, kernel_size=3, stride=1, padding=1, bias=True),
+            nn.ReLU(),
+        )
+        self.dLeakyrelu1 = nn.LeakyReLU(0.2, inplace=True)
+        self.dLeakyrelu2 = nn.LeakyReLU(0.2, inplace=True)
+        
+    def forward(self, z):
+        y = z.view(z.size(0), -1)
+        y = self.dfc(y)
+        y = y.view(y.size(0),128, 5, 6, 5)
+        h = self.block1(y) # ------ skip
+        y = self.dLeakyrelu1(y+h)
+        y = self.block2u(y) ######--10*12*10
+        h = self.block3(y) # ------ skip
+        y = self.dLeakyrelu2(y+h)
+        y = self.block4u(y) ######--20*24*20
+        y = self.block5u(y) ######--40*48*40
+        y = self.block6u(y) ######--80*96*80
+        y = self.last_block(y)
+        return y
 
 
 class ResNetVAE(BaseVAE):
-    def __init__(self, in_ch, block_setting) -> None:
+    def __init__(self, first_ch, second_ch, third_ch, forth_ch, z_ch) -> None:
         super(ResNetVAE, self).__init__()
-        self.encoder = VAEResNetEncoder(in_ch=in_ch, block_setting=block_setting)
-        self.decoder = ResNetDecoder(self.encoder)
+        self.encoder = ResNetVAEencoder(first_ch, second_ch, third_ch, forth_ch, z_ch)
+        self.decoder = ResNetDecoder(first_ch, second_ch, third_ch, forth_ch, z_ch)
 
     def reparamenterize(self, mu, logvar):
         std = torch.exp(0.5 * logvar)
@@ -233,14 +241,6 @@ class ResNetVAE(BaseVAE):
         x_re = self.decoder(z)
         return x_re, mu, logvar
 
-#    def Rmse(x_re, x):
-#        return torch.sqrt(torch.mean((x_re - x)**2))
-
-#    def ELBO(self, x_re, x, mu, logvar):
-#        re_err = self.Rmse(x_re, x)
-#        kld = -0.5 * torch.sum(1 + logvar - mu**2 - logvar.exp())
-#        return re_err + kld
-
 #   _________________________
 #    """""原論文において"""""
 #   ￣￣￣￣￣￣￣￣￣￣￣￣￣￣
@@ -248,10 +248,10 @@ class ResNetVAE(BaseVAE):
 #                は Decoder (Generator)    では 最初だけ ReLU() を使用
 
 class SoftIntroVAE(nn.Module):
-    def __init__(self, in_ch, block_setting) -> None:
+    def __init__(self, first_ch, second_ch, third_ch, forth_ch, z_ch) -> None:
         super(SoftIntroVAE, self).__init__()
-        self.encoder = VAEResNetEncoder(in_ch=in_ch, block_setting=block_setting)
-        self.decoder = ResNetDecoder(self.encoder)
+        self.encoder = ResNetVAEencoder(first_ch, second_ch, third_ch, forth_ch, z_ch)
+        self.decoder = ResNetDecoder(first_ch, second_ch, third_ch, forth_ch, z_ch)
 
     def reparameterize(self, mu, logvar):
         std = torch.exp(0.5 * logvar)
@@ -271,11 +271,6 @@ class SoftIntroVAE(nn.Module):
     def decode(self, z, y_cond=None):
         y = self.decoder(z)
         return y
-
-    # def loss(self, x_re, x, mu, logvar):
-    #     re_err = torch.sqrt(torch.mean((x_re - x)**2)) # ==  self.Rmse(x_re, x)
-    #     kld = -0.5 * torch.sum(1 + logvar - mu**2 - logvar.exp())
-    #     return re_err + kld
 
     def sample(self, z, y_cond=None):
         # x.view(-1, 2)
