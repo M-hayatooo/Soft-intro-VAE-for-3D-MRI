@@ -5,7 +5,7 @@ import random
 import time
 
 import matplotlib.pyplot as plt
-import models.models as models
+import models.mymodel as models
 import numpy as np
 import torch
 # pytorch
@@ -134,8 +134,8 @@ def main():
     args = parser()
     # conv 12 → 24 → 32
     # conv 24 → 48 → 64  ##  32 → 64 → 128   ##  64 → 128 → 256
-    if args.model == "SoftIntroVAE":
-        net = models.SoftIntroVAE(64, [[64,1,2],[128,1,2],[256,2,2]])
+    if args.model == "SoftIntroVAE": #                  # チャネル変化
+        net = models.SoftIntroVAE(16, 32, 64, 128, 600) # 16 → 32 → 64 → 128;  z=600
         log_path = "./logs/" + args.log + "_SoftIntroVAE/8per_rec1_ng1024_kl075_ch256_elbo05/"
         print("net: SoftIntroVAE")
         # ------------------------------------- #
