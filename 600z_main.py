@@ -14,8 +14,8 @@ import torch.optim as optim
 # import os.path as osp
 import torchio as tio
 import utils.confusion as confusion
-import utils.my_trainer as trainer
 import utils.train_result as train_result
+import utils.trainer_fc as trainer
 from datasets.dataset import load_data
 # import torchvision.utils as vutils
 from sklearn.model_selection import (GroupShuffleSplit, StratifiedGroupKFold,
@@ -124,7 +124,7 @@ def write_csv(epoch, train_loss, val_loss, path):
 
 def main():
     #   os.environ["CUDA_VISIBLE_DEVICES"] = "6"   #  os.environ["CUDA_VISIBLE_DEVICES"]="4,5,6,7"
-    device = torch.device("cuda:5" if torch.cuda.is_available() and True else "cpu")
+    device = torch.device("cuda:1" if torch.cuda.is_available() and True else "cpu")
     print("device:", device)
 
     # randam.seed(SEED_VALUE)
