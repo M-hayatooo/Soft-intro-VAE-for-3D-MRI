@@ -236,14 +236,9 @@ def train_soft_intro_vae(
         for batch, labels in train_loader:
             #**************  training  ***************
             b_size = batch.size(0)
-            # for voxel shape latent
             # noise_batch = torch.randn(size=(b_size,1,5,6,5)).to(device)
-            # noise_batch = torch.randn(size=(b_size,1,10,12,10)).to(device)
-            
-            ## for fulluy conected layer noise
-            ## for vector shape latent
-            noise_batch = torch.randn(size=(b_size, 600)).to(device)
-             
+            noise_batch = torch.randn(size=(b_size,1,10,12,10)).to(device)
+                         
             real_batch = batch.to(device)
             # ============== Update E ================
             for param in model.encoder.parameters():
