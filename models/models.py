@@ -98,10 +98,11 @@ class ResNetEncoder(nn.Module):
         self.inner_ch = in_ch
         self.blocks = nn.Sequential(*blocks)
         self.conv = nn.Sequential(nn.Conv3d(in_ch, last, kernel_size=1, stride=1, bias=True))
-
+        self.fc = nn.Linear(in_ch, last)
+        #全結合層 (fully-connected Layer
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         h = self.blocks(x)
-        return self.conv(h)
+        return self.fc(h)
 
 class ResNetDecoder(nn.Module):
     def __init__(self, encoder: ResNetEncoder, blocks=None):
@@ -270,7 +271,6 @@ class SoftIntroVAE(nn.Module):
     def decode(self, z, y_cond=None):
         y = self.decoder(z)
         return y
-
 
     # def loss(self, x_re, x, mu, logvar):
     #     re_err = torch.sqrt(torch.mean((x_re - x)**2)) # ==  self.Rmse(x_re, x)
