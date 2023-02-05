@@ -6,7 +6,7 @@ from asyncore import loop
 
 import matplotlib.pyplot as plt
 import models.lossf as lossf
-import models.models as models
+import models.mymodel as models
 import numpy as np
 import torch
 import torch.nn as nn
@@ -22,7 +22,6 @@ from sklearn.model_selection import train_test_split
 from skorch import NeuralNetClassifier
 from skorch.callbacks import Callback, Checkpoint, EarlyStopping
 from skorch.dataset import CVSplit
-# from tune_sklearn import TuneGridSearchCV
 from tune_sklearn import TuneSearchCV
 
 
@@ -44,17 +43,6 @@ def calc_kl(logvar, mu, reduce='mean'):
         kl = torch.sum(kl)
     return kl
 
-
-'''
-
-def reparameterize(mu, logvar):
-    # device = mu.device
-    std = torch.exp(0.5 * logvar)
-    eps = torch.randn_like(std)
-    # eps = torch.randn_like(std).to(device)
-    return mu + eps * std
-
-'''
 
 def calc_reconstruction_loss(x, recon_x, loss_type="mse", reduction='None'):
     bsize = x.size(0)
@@ -119,7 +107,6 @@ def save_image(image, output, epoch, path, train, fakeflag):
     
     plt.savefig(path + savename)
     plt.close()
-
 
 
 def load_model(model, pretrained, device):
@@ -236,12 +223,7 @@ def train_soft_intro_vae(
         for batch, labels in train_loader:
             #**************  training  ***************
             b_size = batch.size(0)
-            # for voxel shape latent
-            # noise_batch = torch.randn(size=(b_size,1,5,6,5)).to(device)
-            # noise_batch = torch.randn(size=(b_size,1,10,12,10)).to(device)
-            
-            ## for fulluy conected layer noise
-            ## for vector shape latent
+            ## noise for fulluy conected layer with vector shape latent
             noise_batch = torch.randn(size=(b_size, 600)).to(device)
              
             real_batch = batch.to(device)
@@ -263,7 +245,7 @@ def train_soft_intro_vae(
             lossE_real_kl = calc_kl(real_logvar, real_mu, reduce="mean")
             # kl-divergence == lossE_real_kl (= scaler)
 
-            # { mu,    logvar,   z  ,   y  }を返す
+            # model (SoftIntroVAE)は  { mu,   logvar,   z  ,   y  }を返す
             # prepare 'fake' data for expELBO
             rec_mu,  rec_logvar, z_rec, rec_rec = model.forward(rec.detach())
             fake_mu,fake_logvar,z_fake,rec_fake = model.forward(fake.detach())
@@ -282,7 +264,7 @@ def train_soft_intro_vae(
 
             # ====== encoder total loss ======
             lossE  = scale*(beta_rec*loss_rec + beta_kl*lossE_real_kl) + 0.5*(exp_elbo_fake+exp_elbo_rec)
-#            lossE  = scale*(beta_rec*loss_rec + beta_kl*lossE_real_kl) + 0.1*(exp_elbo_fake+exp_elbo_rec)
+            # lossE  = scale*(beta_rec*loss_rec + beta_kl*lossE_real_kl) + 0.25*(exp_elbo_fake+exp_elbo_rec)
 
             # backprop part of encoder
             optimizer_e.zero_grad()
@@ -400,8 +382,6 @@ def train_soft_intro_vae(
                 val_lossE += lossE.item()
                 # backprop
                 # ============================ Decoder ==============================
-                # fake = model.decode(noise_batch)
-                # rec = model.decode(z.detach())
                 loss_rec = calc_reconstruction_loss(real_batch, rec.detach(), loss_type=recon_loss_type, reduction="mean")
 
                 rec_mu, rec_logvar = model.encode(rec)
@@ -712,75 +692,6 @@ def train_ResNetVAE_sepa(
     return train_losses, val_losses
 
 
-
-
-
-# trainer for ResCAE
-def train_ResNetCAE(
-    net,
-    train_loader,
-    val_loader,
-    epochs=1,
-    lr=0.001,
-    device=torch.device("cpu"),
-    path="./output_ResNetCAE/",
-):
-    path = path + "train_result.csv"
-    with open(path, "w") as f:
-        writer = csv.writer(f)
-        writer.writerow(["epoch", "train_loss", "val_loss"])
-
-    criterion = nn.MSELoss()
-    optimizer = optim.Adam(net.parameters(), lr)
-    print(optimizer)
-    net = torch.nn.DataParallel(net, device_ids=[0, 1, 2, 3])
-    net.to(device)
-    train_loss_list, val_loss_list = [], []
-    start_time = time.time()
-    for epoch in range(epochs):
-        loop_start_time = time.time()
-        net.train()
-        train_loss, val_loss = 0.0, 0.0
-        for inputs, labels in train_loader:
-            inputs = inputs.to(device)
-            #labels = labels.to(device)
-            optimizer.zero_grad()
-
-            outputs = net(inputs)
-            loss = criterion(outputs, inputs)
-            loss.backward()
-            optimizer.step()
-
-            train_loss += loss.item()
-
-        train_loss /= len(train_loader)
-
-        net.eval()
-        with torch.no_grad():
-            for inputs, labels in val_loader:
-                inputs = inputs.to(device)
-                #labels = labels.to(device)
-                outputs = net(inputs)
-                loss = criterion(outputs, inputs)
-
-                val_loss += loss.item()
-
-        val_loss /= len(val_loader)
-
-        now_time = time.time()
-        print(f"Epoch [{epoch+1}/{epochs}] train_loss:{train_loss:.3f}  val_loss:{val_loss:.3f} "
-              f" 1epoch:{(now_time - loop_start_time):.1f}秒  total time:{(now_time - start_time):.1f}秒")
-
-        train_loss_list.append(train_loss)
-        val_loss_list.append(val_loss)
-        #write_csv(epoch, train_loss, val_loss, path)
-
-    print("Finished Traininig")
-    return train_loss_list, val_loss_list
-
-    # ----------------------------------------------------------------------------------------------------------- #
-
-
 # trainer for CNN
 def train(
     net,
@@ -896,16 +807,13 @@ def train_vae(
         for inputs, labels in train_loader:
             inputs = inputs.to(device)
             optimizer.zero_grad()
-
             x_re, mu, logvar = net.forward(inputs)
             loss = net.loss(x_re, inputs, mu, logvar)
             loss.backward()
             optimizer.step()
-
             train_loss += loss.item()
 
         train_loss /= len(train_loader)
-
 
         net.eval()
         with torch.no_grad():
