@@ -51,6 +51,7 @@ class BaseVAE(nn.Module):
 class ResNetVAEencoder(nn.Module): # first_ch=16 second_ch=32 third_ch=64 forth_ch=128
     def __init__(self, first_ch, second_ch, third_ch, forth_ch, z_ch):
         super(ResNetVAEencoder, self).__init__()
+        self.forth_ch = forth_ch
         self.block1 = nn.Sequential(
             nn.Conv3d(1, first_ch, kernel_size=3, stride=1, padding=1, bias=True),
             nn.BatchNorm3d(first_ch),
@@ -145,6 +146,7 @@ class ResNetVAEencoder(nn.Module): # first_ch=16 second_ch=32 third_ch=64 forth_
 class ResNetDecoder(nn.Module):
     def __init__(self, first_ch, second_ch, third_ch, forth_ch, z_ch):
         super(ResNetDecoder, self).__init__()
+        self.forth_ch = forth_ch
         self.dfc = nn.Sequential(
             nn.Linear(z_ch, forth_ch*5*6*5),
             nn.ReLU(True),
@@ -161,7 +163,7 @@ class ResNetDecoder(nn.Module):
             nn.Conv3d(forth_ch, forth_ch, kernel_size=3, stride=1, padding=1, bias=True),
             nn.BatchNorm3d(forth_ch),
             nn.LeakyReLU(0.2, inplace=True),
-            nn.Upsample(scale_factor=2,mode="trilinear"),
+            nn.Upsample(scale_factor=2, mode='nearest'),
             nn.Conv3d(forth_ch, third_ch, kernel_size=3, stride=1, padding=1, bias=True),
             nn.BatchNorm3d(third_ch),
             nn.LeakyReLU(0.2, inplace=True),
@@ -178,7 +180,7 @@ class ResNetDecoder(nn.Module):
             nn.Conv3d(third_ch, third_ch, kernel_size=3, stride=1, padding=1, bias=True),
             nn.BatchNorm3d(third_ch),
             nn.LeakyReLU(0.2, inplace=True),
-            nn.Upsample(scale_factor=2,mode="trilinear"),
+            nn.Upsample(scale_factor=2, mode='nearest'),
             nn.Conv3d(third_ch, second_ch, kernel_size=3, stride=1, padding=1, bias=True),
             nn.BatchNorm3d(second_ch),
             nn.LeakyReLU(0.2, inplace=True),
@@ -187,7 +189,7 @@ class ResNetDecoder(nn.Module):
             nn.Conv3d(second_ch, second_ch, kernel_size=3, stride=1, padding=1, bias=True),
             nn.BatchNorm3d(second_ch),
             nn.LeakyReLU(0.2, inplace=True),
-            nn.Upsample(scale_factor=2,mode="trilinear"),
+            nn.Upsample(scale_factor=2, mode='nearest'),
             nn.Conv3d(second_ch, first_ch, kernel_size=3, stride=1, padding=1, bias=True),
             nn.BatchNorm3d(first_ch),
             nn.LeakyReLU(0.2, inplace=True),
@@ -196,7 +198,7 @@ class ResNetDecoder(nn.Module):
             nn.Conv3d(first_ch, first_ch, kernel_size=3, stride=1, padding=1, bias=True),
             nn.BatchNorm3d(first_ch),
             nn.LeakyReLU(0.2, inplace=True),
-            nn.Upsample(scale_factor=2,mode="trilinear"),
+            nn.Upsample(scale_factor=2, mode='nearest'),
             nn.Conv3d(first_ch, first_ch, kernel_size=3, stride=1, padding=1, bias=True),
             nn.BatchNorm3d(first_ch),
             nn.LeakyReLU(0.2, inplace=True),
@@ -211,7 +213,7 @@ class ResNetDecoder(nn.Module):
     def forward(self, z):
         y = z.view(z.size(0), -1)
         y = self.dfc(y)
-        y = y.view(y.size(0),128, 5, 6, 5)
+        y = y.view(y.size(0), self.forth_ch, 5, 6, 5)
         h = self.block1(y) # ------ skip
         y = self.dLeakyrelu1(y+h)
         y = self.block2u(y) ######--10*12*10
