@@ -12,6 +12,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+#import torch_optimizer as optimizer
 import utils.train_result as train_result
 from skimage.metrics import mean_squared_error
 from skimage.metrics import structural_similarity as ssim
@@ -127,13 +128,16 @@ def save_checkpoint(model, epoch, iteration, prefix=""):
 
 #  ===============  train Soft Intro VAE function  =================
 def train_soft_intro_vae(
-    model,
-    train_loader,
-    val_loader,
-    epochs,
-    lr=0.001,
+    model=None,
+    train_loader=None,
+    val_loader=None,
+    epochs=500,
+    lr=2e-4,
     device=torch.device("cpu"),
     path="./output_SoftIntroVAE/",
+    beta_rec=1.0,
+    beta_neg=1024.0,
+    beta_kl=0.75,
     pretrained_path=None,
 ):
     seed = 77
@@ -158,30 +162,27 @@ def train_soft_intro_vae(
     if pretrained_path is not None:
         load_model(model, pretrained_path, device)
     # print(model)
-    # lr_e = lr   ,   lr_d = lr
+    
+    # optimizer_e = optimizer.Adam(model.parameters(), lr=2e-4)
     optimizer_e = optim.Adam(model.encoder.parameters(), lr=2e-4)
     optimizer_d = optim.Adam(model.decoder.parameters(), lr=2e-4)
+    # optimizer_e = optim.RAdam(model.encoder.parameters(), lr=2e-4 ,betas=(0.9, 0.999), eps=1e-8, weight_decay=0,)
+    # optimizer_d = optim.RAdam(model.decoder.parameters(), lr=2e-4 ,betas=(0.9, 0.999), eps=1e-8, weight_decay=0,)
     e_scheduler = optim.lr_scheduler.MultiStepLR(optimizer_e, milestones=(350,), gamma=0.1)
     d_scheduler = optim.lr_scheduler.MultiStepLR(optimizer_d, milestones=(350,), gamma=0.1)
 
 #   ----------     パラメータ定義  いじるならここかなぁ     -----------
     recon_loss_type = "mse"
-    beta_rec = 1.0 # beta_rec == 0.1 くらいが  cifar10 での beta_rec * loss_rec_recの値と同値になる...はず
-    beta_neg = 1024.0 # bata_neg == 50.0 くらいがcifar10 での beta_neg * rec_kl_e    の値と同値になる...はず
-    beta_kl = 0.75
+    # beta_rec = 4.0    # beta_rec == 0.1 くらいが  cifar10 での beta_rec * loss_rec_recの値と同値になる...はず
+    # beta_neg = 1024.0 # bata_neg == 50.0 くらいが cifar10 での beta_neg * rec_kl_e    の値と同値になる...はず
+    # beta_kl = 0.5
     gamma_r = 1e-8
     scale = (8) / (80 * 96 * 80)  # normalizing constant, 's' in the paper desu
     #scale = (1) / (3 * 256 * 256)
     # 80 * 96 = 7,680
-    # 80*96*80 = 614,400
-    # 2/80*96*80  = 307,200
-    # 4/80*96*80  = 153,600
-    # 8/80*96*80  =  76,800
-    # 16/80*96*80  =  38,400
-    # 32/80*96*80  =  19,200
-    # 256 * 256 =  65,536
-    # 256*256*3 = 196,608
-    # 160 * 160 = 25,600
+    #   80*96*80  = 614,400   #  2/80*96*80  = 307,200   #  4/80*96*80  = 153,600
+    # 8/80*96*80  =  76,800   # 16/80*96*80  =  38,400   # 32/80*96*80  =  19,200
+    # 256*256*3   = 196,608   #  256 * 256   =  65,536   #   160 * 160  =  25,600
     start_time = time.time()
 
 #    cur_iter = 0
@@ -204,6 +205,16 @@ def train_soft_intro_vae(
         #     gamma_r = 0.1
         # if epoch == 170:
         #     gamma_r = 0.5
+        # if epoch == 150:
+        #     beta_rec = 1.5
+        #     print("==============================================")
+        #     print(f"beta_rec == {beta_rec:.1f}")
+        #     print("==============================================")
+        # if epoch == 200:
+        #     beta_rec = 2.0
+        #     print("==============================================")
+        #     print(f"beta_rec == {beta_rec:.1f}")
+        #     print("==============================================")
 
         loop_start_time = time.time()
         diff_kls = []
@@ -219,12 +230,13 @@ def train_soft_intro_vae(
         batch_kls_rec = []
         batch_rec_errs = []
         output_cpu = []
+        output_cpu_val = []
         fake_output = []
         for batch, labels in train_loader:
             #**************  training  ***************
             b_size = batch.size(0)
             ## noise for fulluy conected layer with vector shape latent
-            noise_batch = torch.randn(size=(b_size, 600)).to(device)
+            noise_batch = torch.randn(size=(b_size, model.z_ch)).to(device)
              
             real_batch = batch.to(device)
             # ============== Update E ================
@@ -263,10 +275,10 @@ def train_soft_intro_vae(
             exp_elbo_rec  = (-2* scale*(beta_rec*loss_rec_rec + beta_neg*rec_kl_e )).exp().mean()
 
             # ====== encoder total loss ======
-            lossE  = scale*(beta_rec*loss_rec + beta_kl*lossE_real_kl) + 0.5*(exp_elbo_fake+exp_elbo_rec)
+            lossE = scale*(beta_rec*loss_rec + beta_kl*lossE_real_kl) + 0.75*(exp_elbo_fake + 2*exp_elbo_rec)
             # lossE  = scale*(beta_rec*loss_rec + beta_kl*lossE_real_kl) + 0.25*(exp_elbo_fake+exp_elbo_rec)
-
-            # backprop part of encoder
+            # lossE = lossE*10
+            # backprop of encoder
             optimizer_e.zero_grad()
             lossE.backward()
             optimizer_e.step()
@@ -278,7 +290,6 @@ def train_soft_intro_vae(
             for param in model.decoder.parameters():
                 param.requires_grad = True
             # generate 'fake' data
-
             fake=model.decode(noise_batch)
             rec =model.decode(z.detach())
             
@@ -303,7 +314,7 @@ def train_soft_intro_vae(
 
             lossD = scale * (beta_rec*loss_rec + 0.5*beta_kl*(rec_kl+fake_kl) + gamma_r*0.5*beta_rec*(loss_rec_rec+loss_fake_rec))
             # lossD = scale * (loss_rec*beta_rec + rec_kl*beta_kl) + 0 * ((rec_kl+fake_kl)*0.5*beta_kl + gamma_r*0.5*beta_rec*(loss_rec_rec+loss_fake_rec))
-
+            # lossD = lossD * 10
             optimizer_d.zero_grad()
             lossD.backward()
             optimizer_d.step()
@@ -336,8 +347,6 @@ def train_soft_intro_vae(
         info += f'DIFF_Kl_F:{(-lossE_real_kl.data.cpu() + fake_kl.data.cpu()):.4f}'
         print(info)
 
-        # train_loader_iter = iter(train_loader)
-        # batch2, _ = next(train_loader_iter)
         
         for out in rec:
             output_cpu.append(out.detach().cpu())
@@ -355,7 +364,7 @@ def train_soft_intro_vae(
                 b_size = batch.size(0)
                 #print(f"batch size == {b_size}")
                 # noise_batch = torch.randn(size=(b_size,1,10,12,10)).to(device)# noise_batch=torch.randn(size=(b_size,1,5,6,5)).to(device)
-                noise_batch = torch.randn(size=(b_size, 600)).to(device)
+                noise_batch = torch.randn(size=(b_size, model.z_ch)).to(device)
                 real_batch = batch.to(device)
                 # ============================ Encoder ===============================
                 fake = model.decode(noise_batch)
@@ -378,7 +387,7 @@ def train_soft_intro_vae(
                 exp_elbo_fake = (-2 * scale * (beta_rec * loss_fake_rec+ beta_neg *fake_kl_e)).exp().mean()
                 exp_elbo_rec  = (-2 * scale * (beta_rec * loss_rec_rec + beta_neg * rec_kl_e)).exp().mean()
                 # total loss
-                lossE = scale * (beta_rec*loss_rec + beta_kl*lossE_real_kl) + 0.25*(exp_elbo_fake+exp_elbo_rec)
+                lossE = scale * (beta_rec*loss_rec + beta_kl*lossE_real_kl) + 0.75*(exp_elbo_fake + 2*exp_elbo_rec)
                 val_lossE += lossE.item()
                 # backprop
                 # ============================ Decoder ==============================
@@ -402,18 +411,15 @@ def train_soft_intro_vae(
                 lossD = scale * (loss_rec*beta_rec + 0.5*beta_kl*(rec_kl+fake_kl) + gamma_r*0.5*beta_rec*(loss_rec_rec+loss_fake_rec))
                 val_lossD += lossD.item()
 
-            if b_size == 8:
-                output_cpu_val = []
-                for val_rec in rec:
-                    output_cpu_val.append(val_rec.detach().cpu())
-                
-                save_image(batch, output_cpu_val, epoch, path, train=False, fakeflag=False)
-
-
             val_lossE /= len(val_loader)
             val_lossD /= len(val_loader)
             val_lossE_list.append(val_lossE)
             val_lossD_list.append(val_lossD)
+
+        if b_size == 8:
+            for val_rec in rec:
+                output_cpu_val.append(val_rec.detach().cpu())
+            save_image(batch, output_cpu_val, epoch, path, train=False, fakeflag=False)
 
         #max_imgs = min(batch.size(0), 16)
         # vutils.save_image(
@@ -458,7 +464,7 @@ def train_soft_intro_vae(
 
 def init_weights_he(m):
     if type(m) == nn.Conv3d or type(m) == nn.ConvTranspose3d:
-        nn.init.kaiming_normal_(m.weight, nonlinearity="relu")
+        nn.init.kaiming_normal_(m.weight, nonlinearity="leaky_relu")
     return
 
 
