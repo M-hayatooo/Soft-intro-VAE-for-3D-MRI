@@ -148,7 +148,7 @@ class ResNetDecoder(nn.Module):
         super(ResNetDecoder, self).__init__()
         self.forth_ch = forth_ch
         self.dfc = nn.Sequential(
-            nn.Linear(z_ch, forth_ch*5*6*5),
+            nn.Linear(z_ch, forth_ch*150), # 5*6*5 = 150
             nn.ReLU(True),
         )
         self.block1 = nn.Sequential(
@@ -254,6 +254,7 @@ class SoftIntroVAE(nn.Module):
         super(SoftIntroVAE, self).__init__()
         self.encoder = ResNetVAEencoder(first_ch, second_ch, third_ch, forth_ch, z_ch)
         self.decoder = ResNetDecoder(first_ch, second_ch, third_ch, forth_ch, z_ch)
+        self.z_ch = z_ch
 
     def reparameterize(self, mu, logvar):
         std = torch.exp(0.5 * logvar)
