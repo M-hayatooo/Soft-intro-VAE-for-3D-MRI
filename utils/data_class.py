@@ -4,13 +4,13 @@ from datasets.dataset import CLASS_MAP
 from torch.utils.data import Dataset
 
 
-#      data dict expressed
+#     data dict expressed
 class BrainDataset(Dataset):
     def __init__(self, data_dict, transform=None, phase="train", class_map=CLASS_MAP):
         self.data = data_dict
         self.voxels = [self._preprocess(data["voxel"]) for data in self.data]
-#        self.voxels = [self._preprocess(v) for v in voxels]
-#        self.voxels = [self._preprocess(data["voxel"]) for data in self.data]
+#       self.voxels = [self._preprocess(v) for v in voxels]
+#       self.voxels = [self._preprocess(data["voxel"]) for data in self.data]
         self.phase = phase
         self.class_map = class_map
         self.transform = transform
