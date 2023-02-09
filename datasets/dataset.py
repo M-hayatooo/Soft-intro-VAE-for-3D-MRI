@@ -1,10 +1,9 @@
+import pathlib
 import pickle
-from tqdm import tqdm
 
 import numpy as np
 import pandas as pd
-
-import pathlib
+from tqdm import tqdm
 
 # == Base ==
 DATA_DIR = pathlib.Path("/data") / "radiology_datas"
@@ -227,7 +226,7 @@ def load_data(
     dataset = []
     key = "**/*" + DATA_PREFIX_DICT[size] + "*.pkl"
     if dryrun:
-        print(f"[--DRYRUN--]")
+        print("[--DRYRUN--]")
         print(f"[SIZE] {size}")
         print(f"[KINDS] {kinds}")
         print(f"[CLASSES] {classes}")
