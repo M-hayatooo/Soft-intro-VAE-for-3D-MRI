@@ -37,18 +37,21 @@ def parser():
     parser = argparse.ArgumentParser(description="example")
     parser.add_argument("--model", type=str, default="SoftIntroVAE")
     parser.add_argument("--batch_size", type=int, default=8)
-    parser.add_argument("--epoch", type=int, default=950)
+    parser.add_argument("--epoch", type=int, default=990)
     parser.add_argument("--Softepoch", type=int, default=50)
-    parser.add_argument("--lr", type=float, default=0.001)
-    parser.add_argument("--log", type=str, default="z-1200")
+    parser.add_argument("--lr", type=float, default=2e-4)
+    parser.add_argument("--log", type=str, default="z-600")
     parser.add_argument("--n_train", type=float, default=0.8)
     parser.add_argument("--train_or_loadnet", type=str, default="train")# train or loadnet
+    parser.add_argument("--beta_rec", type=float, default=4.0)
+    parser.add_argument("--beta_neg", type=float, default=1500.0)
     parser.add_argument("--beta_kl", type=float, default=0.5)
-    parser.add_argument("--beta_rec", type=float, default=1.0)
-    parser.add_argument("--beta_neg", type=float, default=1024.0)
     parser.add_argument("--gamma_r", type=float, default=1e-8)
     parser.add_argument("--normalizing_value", type=str, default="8/80*96*80")
-    parser.add_argument("--conv", type=str, default="64_128_256")
+    parser.add_argument("--conv", type=str, default="16-32-64-128")
+    parser.add_argument("--optimizer", type=str, default="Adam")
+    # parser.add_argument("--optimizer", type=str, default="RAdam")
+    # parser.add_argument("--conv", type=str, default="32-64-128-256")
     
     args = parser.parse_args()
     return args
@@ -132,13 +135,15 @@ def main():
     torch.manual_seed(SEED_VALUE)
 
     args = parser()
-    # conv 12 → 24 → 32
+    # conv 12 → 24 → 32   4回poolingで 80*96*80 → 5*6*5に
     # conv 24 → 48 → 64  ##  32 → 64 → 128   ##  64 → 128 → 256
     if args.model == "SoftIntroVAE": #                  # チャネル変化
         net = models.SoftIntroVAE(16, 32, 64, 128, 600) # 16 → 32 → 64 → 128;  z=600
-        log_path = "./logs/" + args.log + "_SoftIntroVAE/8per_rec1_ng1024_kl075_ch256_elbo05/"
+        #net = models.SoftIntroVAE(32, 64, 128, 256, 600) # 32 → 64 → 128 → 256;  z=600
+        log_path = "./logs/" + args.log + "_SoftIntroVAE/8per_rec4_ng1024_kl05_el075/"
         print("net: SoftIntroVAE")
         # ------------------------------------- #
+
     elif args.model == "ResNetCAE":
         net = models.ResNetCAE(12, [[12,1,2],[24,1,2],[32,2,2]]) # ここでmodelの block 構造指定
         log_path = "./logs/" + args.log + "_ResNetCAE/"
@@ -177,7 +182,6 @@ def main():
             torch.save(net.state_dict(), log_path + "resnetcae_weight.pth")
             print("saved ResNetCAE net weight!")
             train_result.result_ae(train_loss, val_loss, log_path)
-
         elif args.model == "ResNetVAE":
             train_loss, val_loss = trainer.train_ResNetVAE(net, train_loader, val_loader, args.epoch, args.lr, device, log_path)
             torch.save(net.state_dict(), log_path + "resnetvae_weight.pth")
@@ -187,7 +191,9 @@ def main():
             #ここの result_ae は result_AutoEncoder
         elif args.model == "SoftIntroVAE":
             # pretrained_path = log_path + "S-IntroVAE_4184_epoch399.pth"
-            train_lossE, train_lossD, val_lossE, val_lossD = trainer.train_soft_intro_vae(net, train_loader, val_loader, args.epoch, args.lr, device, log_path)
+            train_lossE, train_lossD, val_lossE, val_lossD = trainer.train_soft_intro_vae(
+                net, train_loader, val_loader, args.epoch, args.lr, device, log_path, args.beta_rec, args.beta_neg, args.beta_kl,
+            )
             torch.save(net.state_dict(), log_path + "last_s_introVAE_weight.pth")
             print("saved S-IntroVAE net weight!")
             train_result.result_S_IntroVAE(train_lossE, train_lossD, val_lossE, val_lossD, log_path)
