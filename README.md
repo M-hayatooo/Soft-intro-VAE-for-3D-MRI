@@ -4,15 +4,24 @@ Soft-intro-VAE-for-3D-MRI
 The purpose of this research is to realize a CBIR (content-based medical image retrieval) system.<br>
 この研究はCBIRシステムの実現に向けたもの
 
-高次元データな3次元脳MRI画像を次元削減を行い，低次元空間に写像した後，低次元空間上で類似度計算を行い<br>類似症例を提示することができる画像を入力とした検索システムの開発を目標としている．<br><br>
+高次元データな3次元脳MR画像を次元削減を行い，低次元空間に写像した後，低次元空間上で類似度計算を行い<br>類似症例を提示することができる画像を入力とした検索システムの開発を目標としている．<br><br>
 
 低次元空間に写像したデータは入力画像が元々保持していた疾病の特徴や構造情報と差異がない事が望ましく，<br>こうした情報を欠落させないことが必要である．
 従って，低次元表現から再構成した画像が入力と差異のないもの<br>であれば，低次元表現は入力の情報を欠落せず写像させていると考えることができる．<br>
 ゆえに本研究では再構成画像の解像度の向上を目的とし，精度向上に取り組んでいる．
 
 
+<h2> 低次元空間の次元数　Number of dimensions in latent space </h2>
 
-# Reference
+本研究ではVAEにより次元削減をしており，潜在空間は多次元正規分布を仮定している．<br>
+その低次元空間の次元数は <strong>1,200</strong> と <strong> 600 </strong>次元で検証している．
+
+
+入力画像の3次元脳MR画像は約 <strong>500万次元</strong> であり，それを <strong>1,200</strong> or <strong> 600 </strong>次元にまで圧縮している．
+
+
+
+<h2> Reference </h2>
 Daniel, Tal, and Aviv Tamar. "Soft-IntroVAE: Analyzing and improving the introspective variational autoencoder." Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. 2021.
 
 
