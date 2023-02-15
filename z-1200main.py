@@ -36,8 +36,8 @@ SEED_VALUE = 82
 def parser():
     parser = argparse.ArgumentParser(description="example")
     parser.add_argument("--model", type=str, default="SoftIntroVAE")
-    parser.add_argument("--batch_size", type=int, default=8)
-    parser.add_argument("--epoch", type=int, default=950)
+    parser.add_argument("--batch_size", type=int, default=32)
+    parser.add_argument("--epoch", type=int, default=550)
     parser.add_argument("--Softepoch", type=int, default=50)
     parser.add_argument("--lr", type=float, default=0.001)
     parser.add_argument("--log", type=str, default="z-1200")
@@ -75,7 +75,7 @@ def seed_worker(worker_id):
 
 
 def load_dataloader(n_train_rate, batch_size):
-    data = load_data(kinds=["ADNI2", "ADNI2-2"], classes=["CN", "AD", "EMCI", "LMCI", "SMC", "MCI"], unique=False, blacklist=True)
+    data = load_data(kinds=["ADNI2", "ADNI2-2"], classes=["CN", "AD", "EMCI", "LMCI", "SMC", "MCI"], unique=False, blacklist=False)
 
     pids = []
     voxels = np.zeros((len(data), 80, 96, 80))
@@ -124,7 +124,7 @@ def write_csv(epoch, train_loss, val_loss, path):
 
 def main():
     #   os.environ["CUDA_VISIBLE_DEVICES"] = "6"   #  os.environ["CUDA_VISIBLE_DEVICES"]="4,5,6,7"
-    device = torch.device("cuda:5" if torch.cuda.is_available() and True else "cpu")
+    device = torch.device("cuda:0" if torch.cuda.is_available() and True else "cpu")
     print("device:", device)
 
     # randam.seed(SEED_VALUE)
@@ -144,9 +144,10 @@ def main():
         log_path = "./logs/" + args.log + "_ResNetCAE/"
         print("net: ResNetCAE") # ------------------------------------- #
     elif args.model == "ResNetVAE":
-        net = models.ResNetVAE(12, [[12,1,2],[24,1,2],[32,2,2],[48,2,2]])
+        # net = models.ResNetVAE(12, [[12,1,2],[24,1,2],[32,2,2],[48,2,2]])
+        net = models.ResNetVAE(32, [[32,1,2],[64,1,2],[128,2,2]])
         # net = models.ResNetVAE(64, [[64,1,2],[128,1,2],[256,2,2]])
-        log_path = "./logs/" + args.log + "_ResNetVAE/z_150_kl10/"
+        log_path = "./logs/" + args.log + "_ResNetVAE/ch32_64_128_kl30_b32/"
         print("net: ResNetVAE") # ------------------------------------- #
     elif args.model == "VAEtoSoftVAE":
         resnet = models.ResNetVAE(12, [[12,1,2],[24,1,2],[32,2,2]])
