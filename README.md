@@ -92,3 +92,7 @@ pages     = {4391-4400}" tabindex="0" role="button" style="display: inherit;">
 </tr>
 </tbody>
 </table>
+
+<br>
+2023年第85回 情報処理学会 全国大会(2023/03/02～04) で発表予定
+情報処理学会(https://www.ipsj.or.jp/index.html)
