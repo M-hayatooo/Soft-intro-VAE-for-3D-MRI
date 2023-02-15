@@ -118,7 +118,7 @@ def write_csv(epoch, train_loss, val_loss, path):
 
 def main():
     #   os.environ["CUDA_VISIBLE_DEVICES"] = "6"   #  os.environ["CUDA_VISIBLE_DEVICES"]="4,5,6,7"
-    device = torch.device("cuda:5" if torch.cuda.is_available() and True else "cpu")
+    device = torch.device("cuda:7" if torch.cuda.is_available() and True else "cpu")
     print("device:", device)
 
     # randam.seed(SEED_VALUE)
@@ -137,7 +137,7 @@ def main():
         print("net: ResNetVAE") # ------------------------------------- #
     elif args.model == "SoftIntroVAE":
         net = models.SoftIntroVAE(12, [[12,1,2],[24,1,2],[32,2,2],[48,2,2]])
-        log_path = "./logs/" + args.log + "_SoftIntroVAE/only_VAE1/"
+        log_path = "./logs/" + args.log + "_SoftIntroVAE/only_VAE/"
         print("net: SoftIntroVAE") # ------------------------------------- #
     elif args.model == "VAEtoSoftVAE":
         resnet = models.ResNetVAE(12, [[12,1,2],[24,1,2],[32,2,2],[48,2,2]])
