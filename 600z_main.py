@@ -37,21 +37,24 @@ def parser():
     parser = argparse.ArgumentParser(description="example")
     parser.add_argument("--model", type=str, default="SoftIntroVAE")
     parser.add_argument("--batch_size", type=int, default=8)
-    parser.add_argument("--epoch", type=int, default=990)
+    parser.add_argument("--epoch", type=int, default=1500)
     parser.add_argument("--Softepoch", type=int, default=50)
     parser.add_argument("--lr", type=float, default=2e-4)
-    parser.add_argument("--log", type=str, default="z-600")
+    parser.add_argument("--log", type=str, default="latent150")
     parser.add_argument("--n_train", type=float, default=0.8)
     parser.add_argument("--train_or_loadnet", type=str, default="train")# train or loadnet
-    parser.add_argument("--beta_rec", type=float, default=4.0)
-    parser.add_argument("--beta_neg", type=float, default=1500.0)
-    parser.add_argument("--beta_kl", type=float, default=0.5)
+    parser.add_argument("--beta_rec", type=float, default=1.0)
+    parser.add_argument("--beta_neg", type=float, default=1024.0)
+    parser.add_argument("--beta_kl", type=float, default=0.3)
     parser.add_argument("--gamma_r", type=float, default=1e-8)
     parser.add_argument("--normalizing_value", type=str, default="8/80*96*80")
-    parser.add_argument("--conv", type=str, default="16-32-64-128")
+    # parser.add_argument("--conv", type=str, default="16-32-64-128")
+    parser.add_argument("--conv", type=str, default="8-16-32-64")
     parser.add_argument("--optimizer", type=str, default="Adam")
     # parser.add_argument("--optimizer", type=str, default="RAdam")
     # parser.add_argument("--conv", type=str, default="32-64-128-256")
+    parser.add_argument("--upsample_mode", type=str, default="Nearest")
+    # parser.add_argument("--upsample_mode", type=str, default="trilinear_align-True")
     
     args = parser.parse_args()
     return args
@@ -78,7 +81,7 @@ def seed_worker(worker_id):
 
 
 def load_dataloader(n_train_rate, batch_size):
-    data = load_data(kinds=["ADNI2", "ADNI2-2"], classes=["CN", "AD", "EMCI", "LMCI", "SMC", "MCI"], unique=False, blacklist=True)
+    data = load_data(kinds=["ADNI2", "ADNI2-2"], classes=["CN", "AD", "EMCI", "LMCI", "SMC", "MCI"], unique=False, blacklist=False)
 
     pids = []
     voxels = np.zeros((len(data), 80, 96, 80))
@@ -127,7 +130,7 @@ def write_csv(epoch, train_loss, val_loss, path):
 
 def main():
     #   os.environ["CUDA_VISIBLE_DEVICES"] = "6"   #  os.environ["CUDA_VISIBLE_DEVICES"]="4,5,6,7"
-    device = torch.device("cuda:1" if torch.cuda.is_available() and True else "cpu")
+    device = torch.device("cuda:6" if torch.cuda.is_available() and True else "cpu")
     print("device:", device)
 
     # randam.seed(SEED_VALUE)
@@ -138,9 +141,9 @@ def main():
     # conv 12 → 24 → 32   4回poolingで 80*96*80 → 5*6*5に
     # conv 24 → 48 → 64  ##  32 → 64 → 128   ##  64 → 128 → 256
     if args.model == "SoftIntroVAE": #                  # チャネル変化
-        net = models.SoftIntroVAE(16, 32, 64, 128, 600) # 16 → 32 → 64 → 128;  z=600
+        net = models.SoftIntroVAE(8, 16, 32, 64, 150) # 16 → 32 → 64 → 128;  z=600
         #net = models.SoftIntroVAE(32, 64, 128, 256, 600) # 32 → 64 → 128 → 256;  z=600
-        log_path = "./logs/" + args.log + "_SoftIntroVAE/8per_rec4_ng1024_kl05_el075/"
+        log_path = "./logs/" + args.log + "_SoftIntroVAE/8per_rec1_ng1024_kl03_ch64_el05/"
         print("net: SoftIntroVAE")
         # ------------------------------------- #
 
@@ -149,9 +152,10 @@ def main():
         log_path = "./logs/" + args.log + "_ResNetCAE/"
         print("net: ResNetCAE") # ------------------------------------- #
     elif args.model == "ResNetVAE":
-        net = models.ResNetVAE(12, [[12,1,2],[24,1,2],[32,2,2],[48,2,2]])
+        # net = models.ResNetVAE(12, [[12,1,2],[24,1,2],[32,2,2],[48,2,2]])
+        net = models.ResNetVAE(32, [[32,1,2],[64,1,2],[128,2,2]])
         # net = models.ResNetVAE(64, [[64,1,2],[128,1,2],[256,2,2]])
-        log_path = "./logs/" + args.log + "_ResNetVAE/z_150_kl10/"
+        log_path = "./logs/" + args.log + "_ResNetVAE/ch32_64_128_kl30_b32/"
         print("net: ResNetVAE") # ------------------------------------- #
     elif args.model == "VAEtoSoftVAE":
         resnet = models.ResNetVAE(12, [[12,1,2],[24,1,2],[32,2,2]])
