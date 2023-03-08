@@ -85,14 +85,8 @@ class ImageTransformio():
         self.transform = {
             "train": tio.Compose([
                 tio.OneOf(self.spatial_transforms, p=0.5),
-                # tio.transforms.RandomAffine(scales=(0.9, 1.2), degrees=10, isotropic=True,
-                #                  center="image", default_pad_value="mean", image_interpolation='linear'),
-                # tio.transforms.RandomBiasField(),   # tio.ZNormalization(),  # tio.transforms.RescaleIntensity((0, 1))
             ]),
-            "val": tio.Compose([
-                # tio.ZNormalization(),
-                # tio.RescaleIntensity((0, 1))  # , in_min_max=(0.1, 255)),
-            ])
+            "val": tio.Compose([])
         }
 
     def __call__(self, img, phase="train"):
