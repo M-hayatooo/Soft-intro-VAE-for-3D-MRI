@@ -38,7 +38,7 @@ def parser():
     parser = argparse.ArgumentParser(description="example")
     parser.add_argument("--model", type=str, default="ResNetVAE")
     parser.add_argument("--batch_size", type=int, default=48)
-    parser.add_argument("--epoch", type=int, default=200)
+    parser.add_argument("--epoch", type=int, default=300)
     parser.add_argument("--Softepoch", type=int, default=500)
     parser.add_argument("--lr", type=float, default=0.001)
     parser.add_argument("--log", type=str, default="output")
@@ -99,9 +99,9 @@ def load_dataloader(n_train_rate, batch_size):
     g.manual_seed(seed_ti)
 
     print(f"batch size:{batch_size}")
-    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, num_workers=28,
+    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, num_workers=4,
                                   pin_memory=True, shuffle=True, worker_init_fn=seed_worker, generator=g)
-    val_dataloader = DataLoader(val_dataset, batch_size=batch_size, num_workers=28,
+    val_dataloader = DataLoader(val_dataset, batch_size=batch_size, num_workers=4,
                                 pin_memory=True, shuffle=False, worker_init_fn=seed_worker, generator=g)
 
     #train_datadict, val_datadict = train_test_split(dataset, test_size=1-n_train_rate, shuffle=True, random_state=SEED_VALUE)
@@ -128,15 +128,15 @@ def main():
 
     args = parser()
 
-    if args.model == "ResNetCAE":
-        net = models.ResNetCAE(12, [[12,1,2],[24,1,2],[32,2,2],[48,2,2]]) # ここでmodelの block 構造指定
-        log_path = "./logs/" + args.log + "_ResNetCAE/"
-        print("net: ResNetCAE") # ------------------------------------- #
-    elif args.model == "ResNetVAE":
+    if args.model == "ResNetVAE":
         # net = models.ResNetVAE(12, [[12,1,2],[24,1,2],[32,2,2],[48,2,2]])
         net = models.ResNetVAE(12, [[12,1,2],[24,1,2],[32,2,2]])
         log_path = "./logs/" + args.log + "_ResNetVAE/10_12_10/"
         print("net: ResNetVAE") # ------------------------------------- #
+    elif args.model == "ResNetCAE":
+        net = models.ResNetCAE(12, [[12,1,2],[24,1,2],[32,2,2],[48,2,2]]) # ここでmodelの block 構造指定
+        log_path = "./logs/" + args.log + "_ResNetCAE/"
+        print("net: ResNetCAE") # ------------------------------------- #
     elif args.model == "SoftIntroVAE":
         net = models.SoftIntroVAE(12, [[12,1,2],[24,1,2],[32,2,2],[48,2,2]])
         log_path = "./logs/" + args.log + "_SoftIntroVAE/only_VAE2/"
@@ -165,19 +165,19 @@ def main():
             net, val_loader, CLASS_MAP, device, log_path)
 
     elif args.train_or_loadnet == "train":
-        if args.model == "ResNetCAE":
-            train_loss, val_loss = trainer.train_ResNetCAE(net, train_loader, val_loader, args.epoch, args.lr, device, log_path)
-            torch.save(net.state_dict(), log_path + "resnetcae_weight.pth")
-            print("saved ResNetCAE net weight!")
-            train_result.result_ae(train_loss, val_loss, log_path)
-
-        elif args.model == "ResNetVAE":
+        if args.model == "ResNetVAE":
             train_loss, val_loss = trainer.train_ResNetVAE(net, train_loader, val_loader, args.epoch, args.lr, device, log_path)
             torch.save(net.state_dict(), log_path + "resnetvae_weight.pth")
             print("saved ResNetVAE net weight! ")
             train_result.result_ae(train_loss, val_loss, log_path)
             #write_csv(args.epoch, train_loss, val_loss, log_path)
             #ここの result_ae は result_AutoEncoder
+        elif args.model == "ResNetCAE":
+            train_loss, val_loss = trainer.train_ResNetCAE(net, train_loader, val_loader, args.epoch, args.lr, device, log_path)
+            torch.save(net.state_dict(), log_path + "resnetcae_weight.pth")
+            print("saved ResNetCAE net weight!")
+            train_result.result_ae(train_loss, val_loss, log_path)
+
         elif args.model == "SoftIntroVAE":
             train_lossE, train_lossD, val_lossE, val_lossD = trainer.train_soft_intro_vae(net, train_loader, val_loader, args.epoch, args.lr, device, log_path)
             torch.save(net.state_dict(), log_path + "soft_intro_vae_weight.pth")
