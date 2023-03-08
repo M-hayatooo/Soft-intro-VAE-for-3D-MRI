@@ -43,7 +43,13 @@ def parser():
     parser.add_argument("--lr", type=float, default=0.001)
     parser.add_argument("--log", type=str, default="output")
     parser.add_argument("--n_train", type=float, default=0.8)
-    parser.add_argument("--train_or_loadnet", type=str, default="train")# train or loadnet
+    parser.add_argument("--train_or_loadnet", type=str, default="train") # train or loadnet
+    parser.add_argument("--normalizing_value", type=str, default="8/80*96*80")
+    parser.add_argument("--conv_model", type=str, default="(12, [[12,1,2],[24,1,2],[32,2,2],[48,48,48]])")
+    # parser.add_argument("--conv_model", type=str, default="(32, [[32,1,2],[64,1,2],[128,2,2]])")
+    # parser.add_argument("--conv_to_latent", type=str, default="Fully Connectedlayer")
+    parser.add_argument("--optimizer", type=str, default="Adam")
+    parser.add_argument("--upsample_mode", type=str, default="Nearest")
 
     args = parser.parse_args()
     return args
@@ -69,8 +75,33 @@ def seed_worker(worker_id):
     random.seed(worker_seed)
 
 
+# TorchIO
+class ImageTransformio():
+    def __init__(self):
+        self.spatial_transform = {
+            tio.transforms.RandomNoise(mean=0.0, std=(0, 0.1)): 0.5,
+            tio.transforms.RandomNoise(mean=0.0, std=(0, 0.2)): 0.5,
+        }
+        self.transform = {
+            "train": tio.Compose([
+                tio.OneOf(self.spatial_transforms, p=0.5),
+                # tio.transforms.RandomAffine(scales=(0.9, 1.2), degrees=10, isotropic=True,
+                #                  center="image", default_pad_value="mean", image_interpolation='linear'),
+                # tio.transforms.RandomBiasField(),   # tio.ZNormalization(),  # tio.transforms.RescaleIntensity((0, 1))
+            ]),
+            "val": tio.Compose([
+                # tio.ZNormalization(),
+                # tio.RescaleIntensity((0, 1))  # , in_min_max=(0.1, 255)),
+            ])
+        }
+
+    def __call__(self, img, phase="train"):
+        img_t = torch.tensor(img)
+        return self.transform[phase](img_t)
+    
+
 def load_dataloader(n_train_rate, batch_size):
-    data = load_data(kinds=["ADNI2", "ADNI2-2"], classes=["CN", "AD", "EMCI", "LMCI", "SMC", "MCI"], unique=False, blacklist=False)
+    data = load_data(kinds=["ADNI2", "ADNI2-2"], classes=["CN", "AD", "EMCI", "LMCI", "SMC", "MCI"], unique=False, blacklist=True)
 
     pids = []
     voxels = np.zeros((len(data), 80, 96, 80))
@@ -92,8 +123,17 @@ def load_dataloader(n_train_rate, batch_size):
     train_labels = labels[tid]
     val_labels = labels[vid]
 
-    train_dataset = BrainDataset(train_voxels, train_labels)
-    val_dataset = BrainDataset(val_voxels, val_labels)
+    # transform = ImageTransformio()
+    spatial_transforms = {
+        tio.transforms.RandomNoise(mean=0.0, std=(0, 0.1)): 0.5,
+        tio.transforms.RandomNoise(mean=0.0, std=(0, 0.2)): 0.5,
+    }
+    transform = tio.Compose([
+        tio.OneOf(spatial_transforms, p=0.5),
+    ])
+
+    train_dataset = BrainDataset(train_voxels, train_labels, transform=transform, phase="train")
+    val_dataset = BrainDataset(val_voxels, val_labels, transform=transform, phase="val")
 
     g = torch.Generator()
     g.manual_seed(seed_ti)
