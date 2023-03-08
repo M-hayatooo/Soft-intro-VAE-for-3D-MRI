@@ -129,23 +129,23 @@ def main():
     args = parser()
 
     if args.model == "ResNetVAE":
-        # net = models.ResNetVAE(12, [[12,1,2],[24,1,2],[32,2,2],[48,2,2]])
-        net = models.ResNetVAE(12, [[12,1,2],[24,1,2],[32,2,2]])
+        net = models.ResNetVAE(12, [[12,1,2],[24,1,2],[32,2,2],[48,2,2]])
+        # net = models.ResNetVAE(12, [[12,1,2],[24,1,2],[32,2,2]])
         log_path = "./logs/" + args.log + "_ResNetVAE/10_12_10/"
         print("net: ResNetVAE") # ------------------------------------- #
-    elif args.model == "ResNetCAE":
-        net = models.ResNetCAE(12, [[12,1,2],[24,1,2],[32,2,2],[48,2,2]]) # ここでmodelの block 構造指定
-        log_path = "./logs/" + args.log + "_ResNetCAE/"
-        print("net: ResNetCAE") # ------------------------------------- #
-    elif args.model == "SoftIntroVAE":
-        net = models.SoftIntroVAE(12, [[12,1,2],[24,1,2],[32,2,2],[48,2,2]])
-        log_path = "./logs/" + args.log + "_SoftIntroVAE/only_VAE2/"
-        print("net: SoftIntroVAE") # ------------------------------------- #
-    elif args.model == "VAEtoSoftVAE":
-        resnet = models.ResNetVAE(12, [[12,1,2],[24,1,2],[32,2,2],[48,2,2]])
-        net = models.SoftIntroVAE(12, [[12,1,2],[24,1,2],[32,2,2],[48,2,2]])
-        log_path = "./logs/" + args.log + "_VAEtoSoftVAE_fixed_seed/only_VAE1/"
-        print("net: VAE to SoftVAE") # ------------------------------------- #
+    # elif args.model == "ResNetCAE":
+    #     net = models.ResNetCAE(12, [[12,1,2],[24,1,2],[32,2,2],[48,2,2]]) # ここでmodelの block 構造指定
+    #     log_path = "./logs/" + args.log + "_ResNetCAE/"
+    #     print("net: ResNetCAE") # ------------------------------------- #
+    # elif args.model == "SoftIntroVAE":
+    #     net = models.SoftIntroVAE(12, [[12,1,2],[24,1,2],[32,2,2],[48,2,2]])
+    #     log_path = "./logs/" + args.log + "_SoftIntroVAE/only_VAE2/"
+    #     print("net: SoftIntroVAE") # ------------------------------------- #
+    # elif args.model == "VAEtoSoftVAE":
+    #     resnet = models.ResNetVAE(12, [[12,1,2],[24,1,2],[32,2,2],[48,2,2]])
+    #     net = models.SoftIntroVAE(12, [[12,1,2],[24,1,2],[32,2,2],[48,2,2]])
+    #     log_path = "./logs/" + args.log + "_VAEtoSoftVAE_fixed_seed/only_VAE1/"
+    #     print("net: VAE to SoftVAE") # ------------------------------------- #
 
 
     os.makedirs(log_path, exist_ok=True)
@@ -172,25 +172,25 @@ def main():
             train_result.result_ae(train_loss, val_loss, log_path)
             #write_csv(args.epoch, train_loss, val_loss, log_path)
             #ここの result_ae は result_AutoEncoder
-        elif args.model == "ResNetCAE":
-            train_loss, val_loss = trainer.train_ResNetCAE(net, train_loader, val_loader, args.epoch, args.lr, device, log_path)
-            torch.save(net.state_dict(), log_path + "resnetcae_weight.pth")
-            print("saved ResNetCAE net weight!")
-            train_result.result_ae(train_loss, val_loss, log_path)
+        # elif args.model == "ResNetCAE":
+        #     train_loss, val_loss = trainer.train_ResNetCAE(net, train_loader, val_loader, args.epoch, args.lr, device, log_path)
+        #     torch.save(net.state_dict(), log_path + "resnetcae_weight.pth")
+        #     print("saved ResNetCAE net weight!")
+        #     train_result.result_ae(train_loss, val_loss, log_path)
 
-        elif args.model == "SoftIntroVAE":
-            train_lossE, train_lossD, val_lossE, val_lossD = trainer.train_soft_intro_vae(net, train_loader, val_loader, args.epoch, args.lr, device, log_path)
-            torch.save(net.state_dict(), log_path + "soft_intro_vae_weight.pth")
-            print("saved S-IntroVAE net weight!")
-            train_result.result_ae(train_lossE, train_lossD, val_lossE, val_lossD, log_path)
+        # elif args.model == "SoftIntroVAE":
+        #     train_lossE, train_lossD, val_lossE, val_lossD = trainer.train_soft_intro_vae(net, train_loader, val_loader, args.epoch, args.lr, device, log_path)
+        #     torch.save(net.state_dict(), log_path + "soft_intro_vae_weight.pth")
+        #     print("saved S-IntroVAE net weight!")
+        #     train_result.result_ae(train_lossE, train_lossD, val_lossE, val_lossD, log_path)
 
-        elif args.model == "VAEtoSoftVAE":
-            train_loss, val_loss = trainer.train_ResNetVAE(resnet, train_loader, val_loader, args.epoch, args.lr, device, log_path)
-            pretrained_path = log_path + "resnetvae_weight.pth"
-            train_lossE, train_lossD, val_lossE, val_lossD = trainer.train_soft_intro_vae(net, train_loader, val_loader, args.Softepoch, args.lr, device, log_path, pretrained_path)
-            torch.save(net.state_dict(), log_path + "soft_intro_vae_weight.pth")
-            print("saved S-IntroVAE net weight!")
-            train_result.result_S_IntroVAE(train_lossE, train_lossD, val_lossE, val_lossD, log_path)
+        # elif args.model == "VAEtoSoftVAE":
+        #     train_loss, val_loss = trainer.train_ResNetVAE(resnet, train_loader, val_loader, args.epoch, args.lr, device, log_path)
+        #     pretrained_path = log_path + "resnetvae_weight.pth"
+        #     train_lossE, train_lossD, val_lossE, val_lossD = trainer.train_soft_intro_vae(net, train_loader, val_loader, args.Softepoch, args.lr, device, log_path, pretrained_path)
+        #     torch.save(net.state_dict(), log_path + "soft_intro_vae_weight.pth")
+        #     print("saved S-IntroVAE net weight!")
+        #     train_result.result_S_IntroVAE(train_lossE, train_lossD, val_lossE, val_lossD, log_path)
 #            train_result.result_ae(train_lossE, train_lossD, val_lossE, val_lossD, log_path)
 
 
