@@ -147,6 +147,9 @@ def train_soft_intro_vae(
     lr=0.001,
     device=torch.device("cpu"),
     path="./output_SoftIntroVAE/",
+    beta_rec=1.0,
+    beta_neg=1024.0,
+    beta_kl=0.75,
     pretrained_path=None,
 ):
     seed = 77
@@ -179,22 +182,15 @@ def train_soft_intro_vae(
 
 #   ----------     パラメータ定義  いじるならここかなぁ     -----------
     recon_loss_type = "mse"
-    beta_rec = 1.0 # beta_rec == 0.1 くらいが  cifar10 での beta_rec * loss_rec_recの値と同値になる...はず
-    beta_neg = 1024.0 # bata_neg == 50.0 くらいがcifar10 での beta_neg * rec_kl_e    の値と同値になる...はず
+    beta_rec = 0.5 # beta_rec == 0.1 くらいが  cifar10 での beta_rec * loss_rec_recの値と同値になる...はず
+    beta_neg = 512.0 # bata_neg == 50.0 くらいがcifar10 での beta_neg * rec_kl_e    の値と同値になる...はず
     beta_kl = 0.75
     gamma_r = 1e-8
     scale = (8) / (80 * 96 * 80)  # normalizing constant, 's' in the paper desu
-    #scale = (1) / (3 * 256 * 256)
-    # 80 * 96 = 7,680
-    # 80*96*80 = 614,400
-    # 2/80*96*80  = 307,200
-    # 4/80*96*80  = 153,600
-    # 8/80*96*80  =  76,800
-    # 16/80*96*80  =  38,400
-    # 32/80*96*80  =  19,200
-    # 256 * 256 =  65,536
-    # 256*256*3 = 196,608
-    # 160 * 160 = 25,600
+    #scale = (1) / (3 * 256 * 256)    # 80 * 96 = 7,680
+    # 80*96*80 = 614,400   # 2/80*96*80 = 307,200  # 4/80*96*80  = 153,600
+    # 8/80*96*80= 76,800   # 16/80*96*80=  38,400  # 32/80*96*80 = 19,200
+    # 256 * 256 = 65,536   # 256*256*3  = 196,608   # 160 * 160   = 25,600
     start_time = time.time()
 
 #    cur_iter = 0
@@ -231,8 +227,7 @@ def train_soft_intro_vae(
         batch_kls_fake = []
         batch_kls_rec = []
         batch_rec_errs = []
-        output_cpu = []
-        fake_output = []
+        output_cpu, fake_output, output_cpu_val = [], [], []
         for batch, labels in train_loader:
             #**************  training  ***************
             b_size = batch.size(0)
@@ -277,8 +272,8 @@ def train_soft_intro_vae(
 
             # ====== encoder total loss ======
             lossE  = scale*(beta_rec*loss_rec + beta_kl*lossE_real_kl) + 0.5*(exp_elbo_fake+exp_elbo_rec)
-#            lossE  = scale*(beta_rec*loss_rec + beta_kl*lossE_real_kl) + 0.1*(exp_elbo_fake+exp_elbo_rec)
-
+            # lossE  = scale*(beta_rec*loss_rec + beta_kl*lossE_real_kl) + 0.1*(exp_elbo_fake+exp_elbo_rec)
+            lossE *= 10
             # backprop part of encoder
             optimizer_e.zero_grad()
             lossE.backward()
@@ -316,7 +311,7 @@ def train_soft_intro_vae(
 
             lossD = scale * (beta_rec*loss_rec + 0.5*beta_kl*(rec_kl+fake_kl) + gamma_r*0.5*beta_rec*(loss_rec_rec+loss_fake_rec))
             # lossD = scale * (loss_rec*beta_rec + rec_kl*beta_kl) + 0 * ((rec_kl+fake_kl)*0.5*beta_kl + gamma_r*0.5*beta_rec*(loss_rec_rec+loss_fake_rec))
-
+            lossD *= 10
             optimizer_d.zero_grad()
             lossD.backward()
             optimizer_d.step()
@@ -349,21 +344,23 @@ def train_soft_intro_vae(
         info += f'DIFF_Kl_F:{(-lossE_real_kl.data.cpu() + fake_kl.data.cpu()):.4f}'
         print(info)
 
-        # train_loader_iter = iter(train_loader)
-        # batch2, _ = next(train_loader_iter)
-        
-        for out in rec:
-            output_cpu.append(out.detach().cpu())
-        save_image(batch, output_cpu, epoch, path, train=True, fakeflag=False)
-
-        for out in fake:
-            fake_output.append(out.detach().cpu())
-        save_image(batch, fake_output, epoch, path, train=True, fakeflag=True)
-
-        #_, _, _, rec_det = model(real_batch)
-
         model.eval()
         with torch.no_grad():
+            train_loader_iter = iter(train_loader)
+            image, _ = next(train_loader_iter)
+            image = image.to(device)
+            _, _, _, rec = model.forward(image)
+            image = image.cpu()
+            for out in rec:
+                output_cpu.append(out.detach().cpu())
+            save_image(image, output_cpu, epoch, path, train=True, fakeflag=False)
+
+            noise_batch = torch.randn(size=(8, 1,10,12,10)).to(device) # noise batch made
+            fake = model.decode(noise_batch)
+            for out in fake:
+                fake_output.append(out.detach().cpu())
+            save_image(image, fake_output, epoch, path, train=True, fakeflag=True)
+
             for batch, labels in val_loader:
                 b_size = batch.size(0)
                 #print(f"batch size == {b_size}")
@@ -390,7 +387,7 @@ def train_soft_intro_vae(
                 exp_elbo_fake = (-2 * scale * (beta_rec * loss_fake_rec+ beta_neg *fake_kl_e)).exp().mean()
                 exp_elbo_rec  = (-2 * scale * (beta_rec * loss_rec_rec + beta_neg * rec_kl_e)).exp().mean()
                 # total loss
-                lossE = scale * (beta_rec*loss_rec + beta_kl*lossE_real_kl) + 0.25*(exp_elbo_fake+exp_elbo_rec)
+                lossE = scale * (beta_rec*loss_rec + beta_kl*lossE_real_kl) + 0.5*(exp_elbo_fake+exp_elbo_rec)
                 val_lossE += lossE.item()
                 # backprop
                 # ============================ Decoder ==============================
@@ -416,27 +413,26 @@ def train_soft_intro_vae(
                 lossD = scale * (loss_rec*beta_rec + 0.5*beta_kl*(rec_kl+fake_kl) + gamma_r*0.5*beta_rec*(loss_rec_rec+loss_fake_rec))
                 val_lossD += lossD.item()
 
-            if b_size == 8:
-                output_cpu_val = []
-                for val_rec in rec:
-                    output_cpu_val.append(val_rec.detach().cpu())
-                
-                save_image(batch, output_cpu_val, epoch, path, train=False, fakeflag=False)
-
-
             val_lossE /= len(val_loader)
             val_lossD /= len(val_loader)
             val_lossE_list.append(val_lossE)
             val_lossD_list.append(val_lossD)
+
+            val_loader_iter = iter(val_loader)
+            image, _ = next(val_loader_iter)
+            image = image.to(device)
+            _, _, _, rec = model.forward(image)
+            #  (mu, logvar, z, x_re)
+            image = image.cpu()
+            for val_rec in rec:
+                output_cpu_val.append(val_rec.detach().cpu())
+            save_image(image, output_cpu_val, epoch, path, train=False, fakeflag=False)
 
         #max_imgs = min(batch.size(0), 16)
         # vutils.save_image(
         #         torch.cat([real_batch[:max_imgs], rec_det[:max_imgs], fake[:max_imgs]], dim=0).data.cpu(),
         #         '{}/image_{}.jpg'.format("./", cur_iter), nrow=num_row)
         # cur_iter += 1
-        # for out in rec:
-        #     output_cpu_val.append(out.detach().cpu())
-        # save_image(batch, output_cpu_val, epoch, path, train=False)
 
         kls_real.append(np.mean(batch_kls_real))
         kls_fake.append(np.mean(batch_kls_fake))
@@ -446,13 +442,15 @@ def train_soft_intro_vae(
         savename = f"prams/S-IntroVAE_3898_epoch{epoch}.pth"
         savename = path + savename
     #   torch.save(model.state_dict(), file_path)
-        torch.save(model.state_dict(), savename)
+        torch.save(model.to('cpu').state_dict(), savename)
+        model.to(device)
         # path == ... _VAEtoSoftVAE_fixed_seed/rec1_ng300_kl1_gamma1/
 #       torch.save(model.state_dict(), log_path + f"softintroVAE_weight_epoch{str(epoch)}.pth")
 
         now_time = time.time()
+        total_min = (now_time - start_time) / 60
         print(f"Epoch [{epoch+1}/{epochs}]  train_lossE:{train_lossE:.3f}  train_lossD:{train_lossD:.3f}  val_lossE:{val_lossE:.3f}  "
-              f"val_lossD:{val_lossD:.3f}, 1epoch:{(now_time - loop_start_time):.1f}秒  total time:{(now_time - start_time):.1f}秒")
+              f"val_lossD:{val_lossD:.3f}, 1epoch:{(now_time - loop_start_time):.1f}秒  total time:{total_min:.1f}分")
 
         train_lossE_list.append(train_lossE)
         train_lossD_list.append(train_lossD)
@@ -467,12 +465,18 @@ def train_soft_intro_vae(
 
     train_result.result_rec_kls_loss(kls_real, kls_fake, kls_rec, rec_errs, path)
     print("Finished S-IntroVAE Traininig !!")
+    model.to('cpu') # ===========================================================================
     return train_lossE_list, train_lossD_list, val_lossE_list, val_lossD_list
 
 
 def init_weights_he(m):
     if type(m) == nn.Conv3d or type(m) == nn.ConvTranspose3d:
-        nn.init.kaiming_normal_(m.weight, nonlinearity="relu")
+        nn.init.kaiming_normal_(m.weight, nonlinearity="leaky_relu") # leaky_relu or relu
+    return
+
+def init_weights_he_relu(m):
+    if type(m) == nn.Conv3d or type(m) == nn.ConvTranspose3d:
+        nn.init.kaiming_normal_(m.weight, nonlinearity="relu") # leaky_relu or relu
     return
 
 
@@ -517,6 +521,8 @@ def train_ResNetVAE(
     val_loader,
     epochs=1,
     lr=0.001,
+    mse_w=1,
+    kl_w=20,
     device=torch.device("cpu"),
     path="./output_ResNetVAE/",
 ):
@@ -526,10 +532,11 @@ def train_ResNetVAE(
         writer.writerow(["epoch", "train_loss", "val_loss"])
 
     optimizer = optim.Adam(net.parameters(), lr)
-    print(optimizer)
-    #net = torch.nn.DataParallel(net, device_ids=[0, 1, 2, 3])
-    net.to(device)
-    net.apply(init_weights_he)
+    # print(optimizer)
+    # net = torch.nn.DataParallel(net, device_ids=[0, 1, 2, 3])
+    net = net.to(device)
+    print(f"kl_weight = {kl_w}")
+    net = net.apply(init_weights_he_relu)
     train_losses, val_losses = [], []
     train_mse_losses, train_kl_losses, val_mse_losses, val_kl_losses = [], [], [], []
     start_time = time.time()
@@ -543,7 +550,8 @@ def train_ResNetVAE(
             inputs = inputs.to(device)
             optimizer.zero_grad()
             x_re, mu, logvar = net.forward(inputs) #  forward:  return x_re, mu, logvar
-            loss, mse, kl = lossf.normal_loss(x_re, mu, logvar, inputs)
+            # loss, mse, kl = lossf.normal_loss(x_re, mu, logvar, inputs)
+            loss, mse, kl = lossf.normal_loss(x_re, mu, logvar, inputs, mse_w, kl_w)
             loss.backward()
             optimizer.step()
             train_run_loss += loss.item()
@@ -581,12 +589,14 @@ def train_ResNetVAE(
         if epoch % 10 == 0:
             savename = f"ResNetVAE_3898epoch{epoch}.pth"
         #   torch.save(model.state_dict(), file_path)
-            torch.save(net.state_dict(), path + savename)
+            torch.save(net.to('cpu').state_dict(), path + savename)
     #       torch.save(model.state_dict(), log_path + f"softintroVAE_weight_epoch{str(epoch)}.pth")
+            net = net.to(device)
 
         now_time = time.time()
-        print(f"Epoch [{epoch+1}/{epochs}] train_loss:{train_run_loss:.3f}  val_loss:{val_run_loss:.3f} "
-              f" 1epoch:{(now_time - loop_start_time):.1f}秒  total time:{(now_time - start_time)/60:.1f}分")
+        print(f"Epoch[{epoch+1}/{epochs}] Train mse:{train_run_mse:.1f} kl:{train_run_kl:.1f} loss:{train_run_loss:.1f}  "
+              f"Val mse:{val_run_mse:.1f} kl:{val_run_kl:.2f} loss:{val_run_loss:.1f}"
+              f"1epoch:{(now_time - loop_start_time):.0f}秒  total:{(now_time - start_time)/60:.0f}分")
 
 
     write_figres(path + "/loss.txt", train_losses, val_losses)
@@ -595,6 +605,7 @@ def train_ResNetVAE(
 
 
     if epochs != 0:
+        net = net.to('cpu') # =============================================================================
         torch.save(net.state_dict(), path + "resnetvae_weight.pth")
         print("saved ResNetVAE param and ", end="") # これで改行しない
 
