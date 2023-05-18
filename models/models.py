@@ -11,6 +11,7 @@ class BuildingBlock(nn.Module):
         self.res = stride == 1
 #        self.shortcut = self._shortcut()
         self.shortcut = self._shortcut(in_ch, out_ch)
+        self.dropout = nn.Dropout(p=0.25)
         self.relu = nn.LeakyReLU(0.2, inplace=True) # nn.ReLU(inplace=True)
         self.block = nn.Sequential(
             nn.Conv3d(in_ch, out_ch, kernel_size=3, stride=1, padding=1, bias=bias),
@@ -48,6 +49,7 @@ class UpsampleBuildingkBlock(nn.Module):
         self.res = stride == 1
         # self.shortcut = self._shortcut()
         self.shortcut = self._shortcut(in_ch, out_ch)
+        self.dropout = nn.Dropout(p=0.25)
         self.relu = nn.LeakyReLU(0.2, inplace=True) # nn.ReLU(inplace=True)
         self.block = nn.Sequential(
             nn.Conv3d(in_ch, in_ch, kernel_size=3, stride=1, padding=1, bias=bias),
@@ -82,12 +84,15 @@ class ResNetEncoder(nn.Module):
     def __init__(self, in_ch, block_setting):
         super(ResNetEncoder, self).__init__()
         self.block_setting = block_setting
+        self.dropout = nn.Dropout(p=0.25)
+
         self.in_ch = in_ch
         last = 1
         blocks = [nn.Sequential(
             nn.Conv3d(1, in_ch, kernel_size=3, stride=1, padding=1, bias=True),
             nn.BatchNorm3d(in_ch),
             nn.LeakyReLU(0.2, inplace=True), # nn.ReLU(inplace=True),
+            nn.Dropout(p=0.35)
         )]
         for line in self.block_setting:
             c, n, s = line[0], line[1], line[2]
@@ -105,6 +110,8 @@ class ResNetEncoder(nn.Module):
 class ResNetDecoder(nn.Module):
     def __init__(self, encoder: ResNetEncoder, blocks=None):
         super(ResNetDecoder, self).__init__()
+        self.dropout = nn.Dropout(p=0.25)
+
         last = encoder.block_setting[-1][0]
         if blocks is None:
             blocks = [nn.Sequential(
@@ -112,6 +119,7 @@ class ResNetDecoder(nn.Module):
                 nn.BatchNorm3d(last),
                 # nn.ReLU(inplace=True), # decoderの最初だけSoft-IntroVAEの論文ではReLU関数だったが，線形を活性化させてたから構造が違う...
                 nn.LeakyReLU(0.2, inplace=True),
+                nn.Dropout(p=0.25)
             )]
         in_ch = last
         for i in range(len(encoder.block_setting)):
@@ -129,6 +137,7 @@ class ResNetDecoder(nn.Module):
             nn.Conv3d(in_ch, 1, kernel_size=3, stride=1, padding=1, bias=True),
             # nn.LeakyReLU(0.2),
             nn.ReLU(),
+            nn.Dropout(p=0.35)
         ))
         self.blocks = nn.Sequential(*blocks)
 
@@ -251,9 +260,14 @@ class SoftIntroVAE(nn.Module):
         self.encoder = VAEResNetEncoder(in_ch=in_ch, block_setting=block_setting)
         self.decoder = ResNetDecoder(self.encoder)
 
-    def reparameterize(self, mu, logvar):
-        std = torch.exp(0.5 * logvar)
-        eps = torch.randn_like(std)
+    def reparameterize(self, mu, logvar, val_flag=False):
+        if val_flag is False:
+            std = torch.exp(0.5 * logvar)
+            eps = torch.randn_like(std)
+        else:
+            std = torch.exp(0.5 * logvar)
+            eps = 0.1 # torch.randn_like(std)
+
         return mu + eps * std
 
     def forward(self, x):
