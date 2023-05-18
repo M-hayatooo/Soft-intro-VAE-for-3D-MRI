@@ -36,19 +36,25 @@ SEED_VALUE = 82
 def parser():
     parser = argparse.ArgumentParser(description="example")
     parser.add_argument("--model", type=str, default="SoftIntroVAE")
-    parser.add_argument("--batch_size", type=int, default=32)
-    parser.add_argument("--epoch", type=int, default=550)
-    parser.add_argument("--Softepoch", type=int, default=50)
-    parser.add_argument("--lr", type=float, default=0.001)
+    parser.add_argument("--batch_size", type=int, default=8)
+    parser.add_argument("--epoch", type=int, default=700)
+    # parser.add_argument("--Softepoch", type=int, default=50)
+    parser.add_argument("--lr", type=float, default=2e-4)
     parser.add_argument("--log", type=str, default="z-1200")
     parser.add_argument("--n_train", type=float, default=0.8)
     parser.add_argument("--train_or_loadnet", type=str, default="train")# train or loadnet
-    parser.add_argument("--beta_kl", type=float, default=0.5)
+    parser.add_argument("--beta_kl", type=float, default=0.75)
     parser.add_argument("--beta_rec", type=float, default=1.0)
     parser.add_argument("--beta_neg", type=float, default=1024.0)
     parser.add_argument("--gamma_r", type=float, default=1e-8)
     parser.add_argument("--normalizing_value", type=str, default="8/80*96*80")
-    parser.add_argument("--conv", type=str, default="64_128_256")
+    parser.add_argument("--conv_model", type=str, default="(64, [[64,1,2],[128,1,2],[256,2,2]])")
+    # parser.add_argument("--conv_model", type=str, default="(32, [[32,1,2],[64,1,2],[128,2,2]])")
+    parser.add_argument("--latent_size", type=str, default="z=1,200")
+    parser.add_argument("--last_path", type=str, default="8per_rec1_ng1024_kl075_drop/")
+    # parser.add_argument("--last_path", type=str, default="cpu-thread-check-worker16/")
+    # parser.add_argument("--aug_method", type=str, default="degree=10")
+
     
     args = parser.parse_args()
     return args
@@ -74,8 +80,8 @@ def seed_worker(worker_id):
     random.seed(worker_seed)
 
 
-def load_dataloader(n_train_rate, batch_size):
-    data = load_data(kinds=["ADNI2", "ADNI2-2"], classes=["CN", "AD", "EMCI", "LMCI", "SMC", "MCI"], unique=False, blacklist=False)
+def load_dataloader(n_train_rate, batch_size, device=None):
+    data = load_data(kinds=["ADNI2", "ADNI2-2"], classes=["CN", "AD", "EMCI", "LMCI", "SMC", "MCI"], unique=False, blacklist=True)
 
     pids = []
     voxels = np.zeros((len(data), 80, 96, 80))
@@ -97,8 +103,15 @@ def load_dataloader(n_train_rate, batch_size):
     train_labels = labels[tid]
     val_labels = labels[vid]
 
-    train_dataset = BrainDataset(train_voxels, train_labels)
-    val_dataset = BrainDataset(val_voxels, val_labels)
+    # spatial_transforms = {# soft-introだと30°は回転の影響が大き過ぎるかも
+    #     tio.transforms.RandomAffine(degrees=16): 1.0, # == degrees=(330==-30)
+    # }
+    # transform = tio.Compose([
+    #     tio.OneOf(spatial_transforms, p=0.6),
+    # ])
+
+    train_dataset = BrainDataset(train_voxels, train_labels, transform=None, phase="train")
+    val_dataset = BrainDataset(val_voxels, val_labels, transform=None, phase="val")
 
     g = torch.Generator()
     g.manual_seed(seed_ti)
@@ -124,20 +137,30 @@ def write_csv(epoch, train_loss, val_loss, path):
 
 def main():
     #   os.environ["CUDA_VISIBLE_DEVICES"] = "6"   #  os.environ["CUDA_VISIBLE_DEVICES"]="4,5,6,7"
-    device = torch.device("cuda:0" if torch.cuda.is_available() and True else "cpu")
-    print("device:", device)
+    device = torch.device("cuda:5" if torch.cuda.is_available() and True else "cpu")
+    # device0 = torch.device("cuda:0" if torch.cuda.is_available() and True else "cpu")
+    # print(#"tio.transforms.RandomAffine(scales=(0.9, 1.2)): 0.23,\n"
+    #       "tio.transforms.RandomAffine(degrees=16): 1.0,\n")
+    #   "tio.transforms.RandomAffine(degrees=(0,  0,20)): 0.3334,")
 
+    # "tio.transforms.RandomAffine(scales=(0.9, 1.2),degrees=(0, 20, 0)): 0.3333,\n"
+    # print("augmentation= tio.transforms.RandomAffine(degrees=20): 1.0,")
+
+    print(f"device = {device}  No Augmentation;  Using Dropout, ", end="  ")
     # randam.seed(SEED_VALUE)
     np.random.seed(SEED_VALUE)
     torch.manual_seed(SEED_VALUE)
 
     args = parser()
-    # conv 12 → 24 → 32
-    # conv 24 → 48 → 64  ##  32 → 64 → 128   ##  64 → 128 → 256
+    # print(f"conv model = {args.conv_model}  ", end="")
+    # conv 12 → 24 → 32  ##  conv 24 → 48 → 64  ##  32 → 64 → 128   ##  64 → 128 → 256
     if args.model == "SoftIntroVAE":
-        net = models.SoftIntroVAE(64, [[64,1,2],[128,1,2],[256,2,2]])
-        log_path = "./logs/" + args.log + "_SoftIntroVAE/8per_rec1_ng1024_kl075_ch256_elbo05/"
-        print("net: SoftIntroVAE")
+        net = models.SoftIntroVAE(64, [[64,1,2],[128,1,2],[256,2,2]]).to(device)
+        print("net = models.SoftIntroVAE(64, [[64,1,2],[128,1,2],[256,2,2]])")
+        print(f"last_path = {args.last_path}")
+        # net = models.SoftIntroVAE(32, [[32,1,2],[64,1,2],[128,2,2]])
+        log_path = "./logs/" + args.log + "_SoftIntroVAE/" + args.last_path
+        # print("Net = SoftIntroVAE")
         # ------------------------------------- #
     elif args.model == "ResNetCAE":
         net = models.ResNetCAE(12, [[12,1,2],[24,1,2],[32,2,2]]) # ここでmodelの block 構造指定
@@ -163,8 +186,9 @@ def main():
         f.write("{}".format(args))
 
 
-#   ここでデータをロードする.
+#   ここでデータをロードする
     train_loader, val_loader = load_dataloader(args.n_train, args.batch_size)
+    
     # loadnet or train
     if args.train_or_loadnet == "loadnet":
         net.load_state_dict(torch.load(log_path + 'weight.pth'))
@@ -173,7 +197,16 @@ def main():
             net, val_loader, CLASS_MAP, device, log_path)
 
     elif args.train_or_loadnet == "train":
-        if args.model == "ResNetCAE":
+        if args.model == "SoftIntroVAE":
+            # pretrained_path = log_path + "S-IntroVAE_4184_epoch399.pth"
+            train_lossE, train_lossD, val_lossE, val_lossD = trainer.train_soft_intro_vae(
+                net, train_loader, val_loader, args.epoch, args.lr, device, log_path, args.beta_rec, args.beta_neg, args.beta_kl,
+            )
+            torch.save(net.state_dict(), log_path + "last_s_introVAE_weight.pth")
+            print("saved S-IntroVAE net weight!")
+            train_result.result_S_IntroVAE(train_lossE, train_lossD, val_lossE, val_lossD, log_path)
+
+        elif args.model == "ResNetCAE":
             train_loss, val_loss = trainer.train_ResNetCAE(net, train_loader, val_loader, args.epoch, args.lr, device, log_path)
             torch.save(net.state_dict(), log_path + "resnetcae_weight.pth")
             print("saved ResNetCAE net weight!")
@@ -186,12 +219,6 @@ def main():
             train_result.result_ae(train_loss, val_loss, log_path)
             #write_csv(args.epoch, train_loss, val_loss, log_path)
             #ここの result_ae は result_AutoEncoder
-        elif args.model == "SoftIntroVAE":
-            # pretrained_path = log_path + "S-IntroVAE_4184_epoch399.pth"
-            train_lossE, train_lossD, val_lossE, val_lossD = trainer.train_soft_intro_vae(net, train_loader, val_loader, args.epoch, args.lr, device, log_path)
-            torch.save(net.state_dict(), log_path + "last_s_introVAE_weight.pth")
-            print("saved S-IntroVAE net weight!")
-            train_result.result_S_IntroVAE(train_lossE, train_lossD, val_lossE, val_lossD, log_path)
 
         elif args.model == "VAEtoSoftVAE":
             train_loss, val_loss = trainer.train_ResNetVAE(resnet, train_loader, val_loader, args.epoch, args.lr, device, log_path)
