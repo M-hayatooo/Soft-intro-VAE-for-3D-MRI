@@ -37,25 +37,33 @@ def parser():
     parser = argparse.ArgumentParser(description="example")
     parser.add_argument("--model", type=str, default="SoftIntroVAE")
     parser.add_argument("--batch_size", type=int, default=8)
-    parser.add_argument("--epoch", type=int, default=1500)
+    parser.add_argument("--epoch", type=int, default=900)
     parser.add_argument("--Softepoch", type=int, default=50)
     parser.add_argument("--lr", type=float, default=2e-4)
     parser.add_argument("--log", type=str, default="latent150")
+    # parser.add_argument("--log", type=str, default="300-z")
+    # parser.add_argument("--log", type=str, default="z-600")
     parser.add_argument("--n_train", type=float, default=0.8)
     parser.add_argument("--train_or_loadnet", type=str, default="train")# train or loadnet
     parser.add_argument("--beta_rec", type=float, default=1.0)
     parser.add_argument("--beta_neg", type=float, default=1024.0)
-    parser.add_argument("--beta_kl", type=float, default=0.3)
+    parser.add_argument("--beta_kl", type=float, default=0.7)
     parser.add_argument("--gamma_r", type=float, default=1e-8)
     parser.add_argument("--normalizing_value", type=str, default="8/80*96*80")
-    # parser.add_argument("--conv", type=str, default="16-32-64-128")
-    parser.add_argument("--conv", type=str, default="8-16-32-64")
+    # parser.add_argument("--conv_model", type=str, default="(12, 24, 36, 48, 150)")
+    # parser.add_argument("--conv_model", type=str, default="(16, 32, 64, 128, 600)") # (8, 16, 32, 64, 600)
+    # parser.add_argument("--conv_model", type=str, default="(8, 16, 32, 64, 150)") # (8, 16, 32, 64, 600)
+    # parser.add_argument("--conv_model", type=str, default="(12, 24, 36, 48, 300)")
+    parser.add_argument("--conv_model", type=str, default="(12, 24, 32, 48, 150)") # (8, 16, 32, 64, 600)
+    # parser.add_argument("--conv_model", type=str, default="(32, [[32,1,2],[64,1,2],[128,2,2]])")
+    parser.add_argument("--conv_to_latent", type=str, default="Fully Connectedlayer")
     parser.add_argument("--optimizer", type=str, default="Adam")
     # parser.add_argument("--optimizer", type=str, default="RAdam")
-    # parser.add_argument("--conv", type=str, default="32-64-128-256")
     parser.add_argument("--upsample_mode", type=str, default="Nearest")
     # parser.add_argument("--upsample_mode", type=str, default="trilinear_align-True")
-    
+    # parser.add_argument("--last_path", type=str, default="aug_8per_rec1_ng1024_kl075_ch64_30do_dim3/")
+    parser.add_argument("--last_path", type=str, default="aug_8per_rec1_ng1024_kl07_15do_ch48/")
+
     args = parser.parse_args()
     return args
 
@@ -81,7 +89,8 @@ def seed_worker(worker_id):
 
 
 def load_dataloader(n_train_rate, batch_size):
-    data = load_data(kinds=["ADNI2", "ADNI2-2"], classes=["CN", "AD", "EMCI", "LMCI", "SMC", "MCI"], unique=False, blacklist=False)
+    # data = load_data(kinds=["ADNI2", "ADNI2-2"], classes=["CN", "AD", "EMCI", "LMCI", "SMC", "MCI"], unique=False, blacklist=False)
+    data = load_data(kinds=["ADNI2", "ADNI2-2"], classes=["CN", "AD", "EMCI", "LMCI", "SMC", "MCI"], unique=False, blacklist=True)
 
     pids = []
     voxels = np.zeros((len(data), 80, 96, 80))
@@ -103,16 +112,38 @@ def load_dataloader(n_train_rate, batch_size):
     train_labels = labels[tid]
     val_labels = labels[vid]
 
-    train_dataset = BrainDataset(train_voxels, train_labels)
-    val_dataset = BrainDataset(val_voxels, val_labels)
+    spatial_transforms = {
+        # tio.transforms.RandomNoise(mean=noise_mean, std=noise_std): 1.0,
+        # tio.transforms.RandomNoise(mean=0.04, std=(0.04, 0.04)): 0.4,
+        # tio.transforms.RandomAffine(degrees=180): 0.1,
+        # tio.transforms.RandomAffine(scales=(0.9, 1.2)): 1.0,
+
+        tio.transforms.RandomAffine(degrees=15): 1.0,
+
+        # tio.transforms.RandomAffine(degrees=(15, 0, 0)): 0.3,
+        # tio.transforms.RandomAffine(degrees=(0, 15, 0)): 0.2,
+        # tio.transforms.RandomAffine(degrees=(0, 0, 30)): 1.0,
+        # tio.transforms.RandomAffine(scales=(0.9, 1.2)): 1.0,
+        # tio.transforms.RandomAffine(scales=(0.9, 1.2),degrees=(0, 30, 0)): 0.3333,
+        # tio.transforms.RandomAffine(degrees=(0, 0, 180)): 1.0, # 0.3333,
+        # tio.transforms.RandomAffine(degrees=(0, 20, 0)): 0.3333,
+        # tio.transforms.RandomAffine(scales=(0.9, 1.2),degrees=(0,  0,30)): 0.3334,
+        # tio.transforms.RandomAffine(degrees=320): 0.2, # == degrees=(330==-30)
+    }
+    transform = tio.Compose([
+        tio.OneOf(spatial_transforms, p=0.6),
+    ])
+
+    train_dataset = BrainDataset(train_voxels, train_labels, transform=transform, phase="train")
+    val_dataset = BrainDataset(val_voxels, val_labels, transform=None, phase="val")
 
     g = torch.Generator()
     g.manual_seed(seed_ti)
 
     print(f"batch size:{batch_size}")
-    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, num_workers=4,
+    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, num_workers=8,
                                   pin_memory=True, shuffle=True, worker_init_fn=seed_worker, generator=g)
-    val_dataloader = DataLoader(val_dataset, batch_size=batch_size, num_workers=4,
+    val_dataloader = DataLoader(val_dataset, batch_size=batch_size, num_workers=8,
                                 pin_memory=True, shuffle=False, worker_init_fn=seed_worker, generator=g)
 
     # train_datadict, val_datadict = train_test_split(dataset, test_size=1-n_train_rate, shuffle=True, random_state=SEED_VALUE)
@@ -131,20 +162,23 @@ def write_csv(epoch, train_loss, val_loss, path):
 def main():
     #   os.environ["CUDA_VISIBLE_DEVICES"] = "6"   #  os.environ["CUDA_VISIBLE_DEVICES"]="4,5,6,7"
     device = torch.device("cuda:6" if torch.cuda.is_available() and True else "cpu")
-    print("device:", device)
+    print(f"device: {device}", end="   ")
 
     # randam.seed(SEED_VALUE)
     np.random.seed(SEED_VALUE)
     torch.manual_seed(SEED_VALUE)
-
-    args = parser()
-    # conv 12 → 24 → 32   4回poolingで 80*96*80 → 5*6*5に
-    # conv 24 → 48 → 64  ##  32 → 64 → 128   ##  64 → 128 → 256
+                           # 12, 24, 42, 64, 600
+    args = parser()        # 8 - 16 - 32 - 64;  64*5*6*5=9,600 -> 1/16 -> z=600dim
+    # conv 12 → 24 → 32   4回poolingで 80*96*80 → 5*6*5に        ##  48 × 150 = 7,200
+    # conv 24 → 48 → 64  ##  32 → 64 → 128   ##  64 → 128 → 256  ##  64 × 150 = 9,600
+    print(f"Conv_model = {args.model}{args.conv_model}")
     if args.model == "SoftIntroVAE": #                  # チャネル変化
-        net = models.SoftIntroVAE(8, 16, 32, 64, 150) # 16 → 32 → 64 → 128;  z=600
-        #net = models.SoftIntroVAE(32, 64, 128, 256, 600) # 32 → 64 → 128 → 256;  z=600
-        log_path = "./logs/" + args.log + "_SoftIntroVAE/8per_rec1_ng1024_kl03_ch64_el05/"
-        print("net: SoftIntroVAE")
+        net = models.SoftIntroVAE(12, 24, 32, 48, 150).to(device) # 16 → 32 → 64 → 128;  z=600
+        print("net = models.SoftIntroVAE(12, 24, 32, 48, 150).to(device)")# 16 → 32 → 64 → 128;  z=600
+        # 12 - 24 - 32 - 48; z=300dim   ##  8 - 16 - 32 - 64; z=300dim
+        # net = models.SoftIntroVAE(32, 64, 128, 256, 600).to(device) # 32 → 64 → 128 → 256;  z=600
+        # net = models.SoftIntroVAE(8, 16, 32, 64, 600).to(device) # 32 → 64 → 128 → 256;  z=600
+        log_path = "./logs/" + args.log + "_SoftIntroVAE/" + args.last_path
         # ------------------------------------- #
 
     elif args.model == "ResNetCAE":
@@ -181,7 +215,16 @@ def main():
             net, val_loader, CLASS_MAP, device, log_path)
 
     elif args.train_or_loadnet == "train":
-        if args.model == "ResNetCAE":
+        if args.model == "SoftIntroVAE":
+            # pretrained_path = log_path + "S-IntroVAE_4184_epoch399.pth"
+            train_lossE, train_lossD, val_lossE, val_lossD = trainer.train_soft_intro_vae(
+                net, train_loader, val_loader, args.epoch, args.lr, device, log_path, args.beta_rec, args.beta_neg, args.beta_kl,
+            )
+            torch.save(net.to('cpu').state_dict(), log_path + "last_s_introVAE_weight.pth")
+            print("saved S-IntroVAE net weight!")
+            train_result.result_S_IntroVAE(train_lossE, train_lossD, val_lossE, val_lossD, log_path)
+
+        elif args.model == "ResNetCAE":
             train_loss, val_loss = trainer.train_ResNetCAE(net, train_loader, val_loader, args.epoch, args.lr, device, log_path)
             torch.save(net.state_dict(), log_path + "resnetcae_weight.pth")
             print("saved ResNetCAE net weight!")
@@ -193,15 +236,6 @@ def main():
             train_result.result_ae(train_loss, val_loss, log_path)
             #write_csv(args.epoch, train_loss, val_loss, log_path)
             #ここの result_ae は result_AutoEncoder
-        elif args.model == "SoftIntroVAE":
-            # pretrained_path = log_path + "S-IntroVAE_4184_epoch399.pth"
-            train_lossE, train_lossD, val_lossE, val_lossD = trainer.train_soft_intro_vae(
-                net, train_loader, val_loader, args.epoch, args.lr, device, log_path, args.beta_rec, args.beta_neg, args.beta_kl,
-            )
-            torch.save(net.state_dict(), log_path + "last_s_introVAE_weight.pth")
-            print("saved S-IntroVAE net weight!")
-            train_result.result_S_IntroVAE(train_lossE, train_lossD, val_lossE, val_lossD, log_path)
-
         elif args.model == "VAEtoSoftVAE":
             train_loss, val_loss = trainer.train_ResNetVAE(resnet, train_loader, val_loader, args.epoch, args.lr, device, log_path)
             pretrained_path = log_path + "resnetvae_weight.pth"
