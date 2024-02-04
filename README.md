@@ -61,7 +61,7 @@ pages     = {4391-4400}" tabindex="0" role="button" style="display: inherit;">
 <tbody>
 <tr>
 <td><code>Python</code></td>
-<td><code>3.6 (Anaconda)</code></td>
+<td><code>3.8.8 </code></td>
 </tr>
 <tr>
 <td><code>torch</code></td>
