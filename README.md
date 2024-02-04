@@ -95,7 +95,7 @@ pages     = {4391-4400}" tabindex="0" role="button" style="display: inherit;">
 
 <br>
 
-## 本研究の学会発表
+## 学会発表
 - 2023年第85回 情報処理学会 全国大会(2023/03/02～04) (https://www.ipsj.or.jp/event/taikai/85/) にて研究成果を発表
   - **本研究は大会学生奨励賞を受賞** (https://www.ipsj.or.jp/award/taikaigakusei.html)
   - 標題：3次元脳画像の類似症例検索実現に向けた高いデータ保存性を持つ低次元特徴表現の獲得
