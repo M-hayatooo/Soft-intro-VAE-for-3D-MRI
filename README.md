@@ -18,7 +18,7 @@ The purpose of this research is to realize a CBIR (content-based medical image r
 
 
 入力画像の3次元脳MR画像は約 <strong>500万次元</strong> であり，それを <strong>1,200</strong> or <strong> 600 </strong>次元にまで圧縮している．<br>
-**(約4000分の1)**
+**(約4000分の1の圧縮)**
 
 
 
